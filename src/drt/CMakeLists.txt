@@ -121,12 +121,16 @@ target_sources(drt
     src/MakeTritonRoute.cpp
 )
 
+# set the project name
+add_subdirectory(orderNet)
+
 target_include_directories(drt
   PUBLIC
     include
 
   PRIVATE
     src
+    "${PROJECT_SOURCE_DIR}/orderNet"
 )
 
 target_link_libraries(drt
@@ -140,6 +144,9 @@ target_link_libraries(drt
     OpenMP::OpenMP_CXX
     Boost::boost
     ZLIB::ZLIB
+
+  PRIVATE
+    OrderNet
 )
 
 messages(
