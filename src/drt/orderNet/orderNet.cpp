@@ -54,11 +54,3 @@ void OrderNet::Tester() {
   PyObject_CallMethod(pInstance_, "inference", NULL);
 
 }
-
-int main(int argc, char* argv[])
-{
-  OrderNet tester = OrderNet();
-  tester.Tester();
-
-  return 0;
-}
