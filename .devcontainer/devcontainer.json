@@ -10,7 +10,9 @@
 
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
-		"ms-vscode.cpptools"
+		"ms-vscode.cpptools",
+    "ms-python.python",
+		"ms-python.vscode-pylance"
 	],
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
@@ -21,4 +23,5 @@
 
 	// Comment out connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
 	// "remoteUser": "vscode"
+  "mounts": ["source=${localEnv:HOME}/Documents/OR_share,target=/home/share,type=bind"]
 }
