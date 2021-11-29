@@ -18,4 +18,12 @@ RUN rm -rf /home/pytorch_download
 
 #RUN pip3 install torch==1.10.0+cu113 torchvision==0.11.1+cu113 torchaudio==0.10.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
 
+RUN python3 -m pip install --upgrade pip
 RUN pip3 install gym stable-baselines3
+
+RUN pip3 install pyzmq
+RUN yum install -y zeromq-devel
+
+RUN git clone https://github.com/zeromq/cppzmq.git
+RUN cd cppzmq && mkdir build && ls && cd build
+RUN cmake /home/cppzmq/ && make -j4 install
