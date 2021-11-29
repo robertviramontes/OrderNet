@@ -1477,9 +1477,11 @@ void FlexDRWorker::modPathCost(drConnFig* connFig, int type, bool modEol)
   }
 }
 
+// TODO replace this all with pytorch muahahahhaaha
 bool FlexDRWorker::mazeIterInit_sortRerouteNets(int mazeIter,
                                                 vector<drNet*>& rerouteNets)
 {
+  // Lambda function for comparison used by the std::sort function.
   auto rerouteNetsComp = [](drNet* const& a, drNet* const& b) {
     if (a->getFrNet()->getAbsPriorityLvl() > b->getFrNet()->getAbsPriorityLvl())
       return true;
@@ -1494,11 +1496,16 @@ bool FlexDRWorker::mazeIterInit_sortRerouteNets(int mazeIter,
                 ? (areaA == areaB ? a->getId() < b->getId() : areaA < areaB)
                 : a->getNumPinsIn() < b->getNumPinsIn());
   };
+  // TODO when is mazeIter != 0? and why do we only sort in that case?
   // sort
+  logger_->info(DRT, 10003, "Sorting reroute list.");
   if (mazeIter == 0) {
+    // this does the actual sorting per the comp function
     sort(rerouteNets.begin(), rerouteNets.end(), rerouteNetsComp);
     // to be removed
     if (OR_SEED != -1 && rerouteNets.size() >= 2) {
+      logger_->info(DRT, 10001, "If statement that is to be removed.");
+      // TODO does this ever get called?
       uniform_int_distribution<int> distribution(0, rerouteNets.size() - 1);
       default_random_engine generator(OR_SEED);
       int numSwap = (double) (rerouteNets.size()) * OR_K;
