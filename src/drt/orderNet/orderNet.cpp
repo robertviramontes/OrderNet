@@ -1,12 +1,23 @@
 #include "orderNet.hpp"
 
 #include <iostream>
+#include <zmq.hpp>
 
 #define PMODULE_NAME "OrderNet"
 #define PCLASS_NAME "OrderNet"
 
 OrderNet::OrderNet()
 {
+  zmq::context_t context (1);
+  zmq::socket_t socket (context, zmq::socket_type::req);
+
+  std::cerr << "Connecting to hello world server..." << std::endl;
+  socket.connect ("tcp://localhost:5555");
+
+  zmq::message_t request (13);
+  memcpy (request.data (), "Hello, Python", 13);
+  socket.send (request, zmq::send_flags::none);
+
   std::cout << "Into OrderNet!" << std::endl;
   PyObject *pName, *pModule, *pFunc, *pClass;
   PyObject *pArgs, *pValue;
@@ -46,6 +57,8 @@ OrderNet::~OrderNet() {
 }
 
 void OrderNet::Tester() {
+  std::cerr << "Going to call the tester metthods." << std::endl;
+
   if (pInstance_ == NULL) {
     std::cerr << "Instance lost." << std::endl;
     return;
