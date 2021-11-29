@@ -43,6 +43,8 @@
 #include "frProfileTask.h"
 #include "gc/FlexGC.h"
 
+#include "orderNet.hpp"
+
 using namespace std;
 using namespace fr;
 
@@ -1998,6 +2000,10 @@ int FlexDR::main()
   if (VERBOSE > 0) {
     logger_->info(DRT, 194, "Start detail routing.");
   }
+
+  // Example loading the OrderNet interface class. 
+  OrderNet test = OrderNet();
+  test.Tester();
 
   int iterNum = 0;
   searchRepair(
