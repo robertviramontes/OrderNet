@@ -43,8 +43,6 @@
 #include "frProfileTask.h"
 #include "gc/FlexGC.h"
 
-#include "orderNet.hpp"
-
 using namespace std;
 using namespace fr;
 
@@ -1536,6 +1534,8 @@ void FlexDR::searchRepair(int iter,
       worker->setGraphics(graphics_.get());
       worker->setCost(workerDRCCost, workerMarkerCost);
 
+      worker->orderNet_ = orderNet_;
+
       int batchIdx = (xIdx % batchStepX) * batchStepY + yIdx % batchStepY;
       if (workers[batchIdx].empty()
           || (int) workers[batchIdx].back().size() >= BATCHSIZE) {
@@ -2002,8 +2002,7 @@ int FlexDR::main()
   }
 
   // Example loading the OrderNet interface class. 
-  OrderNet test = OrderNet();
-  test.Tester();
+  orderNet_ = new OrderNet();
 
   int iterNum = 0;
   searchRepair(
@@ -2016,6 +2015,7 @@ int FlexDR::main()
                ROUTESHAPECOST /*MAARKERCOST*/,
                1,
                true);
+  #if FALSE
   searchRepair(iterNum++ /*  2 */,
                7,
                -5,
@@ -2358,6 +2358,9 @@ int FlexDR::main()
                MARKERCOST * 16,
                0,
                false);
+#endif
+
+  delete orderNet_;
 
   if (DRC_RPT_FILE != string("")) {
     reportDRC(DRC_RPT_FILE);
