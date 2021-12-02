@@ -25,5 +25,10 @@ RUN pip3 install pyzmq
 RUN yum install -y zeromq-devel
 
 RUN git clone https://github.com/zeromq/cppzmq.git
-RUN cd cppzmq && mkdir build && ls && cd build
+RUN cd cppzmq && mkdir build && cd build
 RUN cmake /home/cppzmq/ && make -j4 install
+
+WORKDIR /home
+RUN git clone https://github.com/nlohmann/json.git && mkdir json/build
+WORKDIR /home/json/build
+RUN cmake /home/json && make -j4 install
