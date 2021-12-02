@@ -67,3 +67,7 @@ void OrderNet::Tester() {
   PyObject_CallMethod(pInstance_, "inference", NULL);
 
 }
+
+void OrderNet::Train(std::vector<fr::drNet*> ripupNets) {
+  return;
+}
