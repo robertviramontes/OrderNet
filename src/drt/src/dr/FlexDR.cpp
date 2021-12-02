@@ -1534,7 +1534,7 @@ void FlexDR::searchRepair(int iter,
       worker->setGraphics(graphics_.get());
       worker->setCost(workerDRCCost, workerMarkerCost);
 
-      worker->orderNet_ = orderNet_;
+      worker->orderNet_ = orderNet_.get();
 
       int batchIdx = (xIdx % batchStepX) * batchStepY + yIdx % batchStepY;
       if (workers[batchIdx].empty()
@@ -2002,7 +2002,7 @@ int FlexDR::main()
   }
 
   // Example loading the OrderNet interface class. 
-  orderNet_ = new OrderNet();
+  orderNet_ = make_unique<OrderNet>();
 
   int iterNum = 0;
   searchRepair(
@@ -2359,8 +2359,6 @@ int FlexDR::main()
                0,
                false);
 #endif
-
-  delete orderNet_;
 
   if (DRC_RPT_FILE != string("")) {
     reportDRC(DRC_RPT_FILE);

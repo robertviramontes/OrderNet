@@ -170,7 +170,7 @@ class FlexDR
   void reportDRC(const std::string& file_name);
 
   // OrderNet
-  OrderNet *orderNet_;
+  unique_ptr<OrderNet> orderNet_;
 };
 
 class FlexDRWorker;
@@ -850,7 +850,7 @@ class FlexDRWorker
 
   // OrderNet
 public:
-  OrderNet *orderNet_;
+  OrderNet * orderNet_;
 
 };
 
