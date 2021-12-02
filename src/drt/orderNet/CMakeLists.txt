@@ -13,6 +13,8 @@ SET(PYTHON_LINK_FLAGS -L/usr/lib64 -lpython3.6m -lpthread -ldl  -lutil -lm  -Xli
 
 find_package(cppzmq)
 
+find_package(nlohmann_json 3.2.0 REQUIRED)
+
 target_compile_options(OrderNet PUBLIC ${PYTHON_COMPILE_FLAGS})
-target_link_libraries(OrderNet PUBLIC ${PYTHON_LINK_FLAGS} cppzmq drt)
+target_link_libraries(OrderNet PUBLIC ${PYTHON_LINK_FLAGS} drt PRIVATE cppzmq nlohmann_json::nlohmann_json)
 target_include_directories(OrderNet PUBLIC "../src")
