@@ -2,6 +2,9 @@ import subprocess
 import zmq
 import os
 import json
+from OrderNetEnv import OrderNetEnv
+from stable_baselines3 import A2C
+from stable_baselines3.common.env_checker import check_env
 
 context = zmq.Context()
 socket = context.socket(zmq.REP)
@@ -30,8 +33,14 @@ while (not received_done):
 
   socket.send_string("ack")
 
+env = OrderNetEnv()
+check_env(env)
+
+# model = A2C('policy', env).learn(total_timesteps=100)
+
 p.wait()
-lines = p.stdout.read().decode("utf-8").split("\n")
+if p.stdout:
+  lines = p.stdout.read().decode("utf-8").split("\n")
 # for line in lines:
 #     print(line)
 
