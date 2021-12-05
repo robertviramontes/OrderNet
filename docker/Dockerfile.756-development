@@ -32,3 +32,6 @@ WORKDIR /home
 RUN git clone https://github.com/nlohmann/json.git && mkdir json/build
 WORKDIR /home/json/build
 RUN cmake /home/json && make -j4 install
+
+# optional, linting tools
+RUN python3 -m pip install mypy black
