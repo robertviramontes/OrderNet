@@ -2689,8 +2689,7 @@ void FlexDRWorker::route_queue_init_queue(queue<RouteQueueEntry>& rerouteQueue)
       ripupNets.push_back(net.get());
     }
     
-    std::cerr << "Nets in worker: " << nets_.size() << std::endl;
-    orderNet_->Train(ripupNets);
+    if (drIter_ > 0) orderNet_->Train(ripupNets);
     // sort nets
     mazeIterInit_sortRerouteNets(0, ripupNets);
     for (auto& net : ripupNets) {
