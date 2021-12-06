@@ -1667,6 +1667,11 @@ void FlexDR::end(bool writeMetrics)
     logger_->metric("drt::vias::total", totSCut + totMCut);
   }
 
+  orderNet_->SendReward(
+    getDesign()->getTopBlock()->getNumMarkers(),
+    totWlen / getDesign()->getTopBlock()->getDBUPerUU()
+  );
+
   if (VERBOSE > 0) {
     logger_->report("Total wire length = {} um.",
                     totWlen / getDesign()->getTopBlock()->getDBUPerUU());
