@@ -13,6 +13,10 @@
 
 using  json = nlohmann::json;
 
+namespace fr{
+  class FlexDRWorker;
+}
+
 class OrderNet
 {
 public:
@@ -20,7 +24,7 @@ public:
   OrderNet();
   ~OrderNet();
 
-  void Train(std::vector<fr::drNet*>& ripupNets);
+  void Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets);
   void SendReward(int numViolations, unsigned long long wireLength);
 
 private:
@@ -29,6 +33,8 @@ private:
   zmq::socket_t sender_;
   void sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message_t& reply);
   zmq::message_t jsonInMessage(json& j);
+  void rectToJson(const Rect *rect, json j);
+
 };
 
 #endif

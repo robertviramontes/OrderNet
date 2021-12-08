@@ -31,6 +31,8 @@
 #include "dr/FlexDR.h"
 #include "frRTree.h"
 
+#include "orderNet.hpp"
+
 using namespace std;
 using namespace fr;
 namespace bgi = boost::geometry::index;
@@ -2689,7 +2691,7 @@ void FlexDRWorker::route_queue_init_queue(queue<RouteQueueEntry>& rerouteQueue)
       ripupNets.push_back(net.get());
     }
     
-    if (drIter_ > 0) orderNet_->Train(ripupNets);
+    if (drIter_ > 0) orderNet_->Train(this, ripupNets);
     // sort nets
     mazeIterInit_sortRerouteNets(0, ripupNets);
     for (auto& net : ripupNets) {

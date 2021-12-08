@@ -2,6 +2,8 @@
 
 #include <iostream>
 #include <sstream>
+#include "odb/geom.h"
+#include "dr/FlexDR.h"
 
 #define PMODULE_NAME "OrderNet"
 #define PCLASS_NAME "OrderNet"
@@ -55,18 +57,31 @@ OrderNet::~OrderNet() {
 
 }
 
-void OrderNet::Train(std::vector<fr::drNet*>& ripupNets) {
+void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets) {
+  Rect routeBox;
+  worker->getRouteBox(routeBox);
+  json jRect;
+  jRect["xlo"] = routeBox.xMin(); jRect["xhi"] = routeBox.xMax();
+  jRect["ylo"] = routeBox.yMin(); jRect["yhi"] = routeBox.yMax();
+
   sender_.connect ("tcp://localhost:5555");
 
   json jInferenceData;
   jInferenceData["type"] = "inferenceData";
   
-  json jNets;
+  json jNets; 
   for (auto net:ripupNets) {
     json jNet;
     auto frNet = net->getFrNet();
     jNet["name"] = frNet->getName();
-    jNet["numPinsIn"] = net->getNumPinsIn();
+    json jPins;
+    for (auto& pin:net->getPins()) {
+      auto pinFigs = pin->getFigs();
+      Rect pinBbox;
+      pinFigs->getBBox(pinBbox);
+      json jPin;
+      rectToJson(pinBbox, jPin);
+    }
 
     jNets.push_back(jNet); 
   }
@@ -138,4 +153,9 @@ zmq::message_t OrderNet::jsonInMessage(json& j) {
   zmq::message_t msg (jString.length());
   memcpy (msg.data(), jString.c_str(), strlen(jString.c_str()));
   return msg;
+}
+
+void OrderNet::rectToJson(const Rect *rect, json j) {
+  j["xlo"] = rect->xMin(); j["xhi"] = rect->xMax();
+  j["ylo"] = rect->yMin(); j["yhi"] = rect->yMax();
 }

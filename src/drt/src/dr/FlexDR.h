@@ -41,7 +41,7 @@
 #include "frDesign.h"
 #include "gc/FlexGC.h"
 
-#include "orderNet.hpp"
+class OrderNet; 
 
 using Rectangle = boost::polygon::rectangle_data<int>;
 

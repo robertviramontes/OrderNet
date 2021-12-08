@@ -43,6 +43,8 @@
 #include "frProfileTask.h"
 #include "gc/FlexGC.h"
 
+#include "orderNet.hpp"
+
 using namespace std;
 using namespace fr;
 
