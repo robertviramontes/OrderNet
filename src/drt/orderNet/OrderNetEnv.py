@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import subprocess
-from typing import Tuple
+from typing import Optional, Tuple
 from gym import Env, spaces
 import numpy as np
 from numpy.core.fromnumeric import std
@@ -44,7 +44,7 @@ class OrderNetEnv(Env):
 
         self._executable_path = executable_path
         self._script_path = script_path
-        self._router_process = None
+        self._router_process: Optional[subprocess.Popen] = None
 
         self._obs_space_shape = (1,)
 

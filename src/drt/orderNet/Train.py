@@ -57,11 +57,3 @@ model = A2C('MlpPolicy', env).learn(total_timesteps=2)
 # p.wait()
 
 log_name = "train_log_rand.txt"
-with open(log_name, "w") as f:
-
-    if p.stdout:
-        f.writelines(p.stdout.read().decode("utf-8"))
-        # lines = p.stdout.read().decode("utf-8").split("\n")
-        # for line in lines:
-        #     if "Number of workers" in line:
-        #         print(line)
