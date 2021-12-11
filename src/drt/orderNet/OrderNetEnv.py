@@ -23,13 +23,14 @@ THE SOFTWARE.
 """
 
 import subprocess
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 from gym import Env, spaces
 import numpy as np
 from numpy.core.fromnumeric import std
 from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import zmq
 import random
+import json
 
 class OrderNetEnv(Env):
     """
@@ -63,13 +64,21 @@ class OrderNetEnv(Env):
     def step(self, action) -> GymStepReturn:
         # The `step()` method must return four values: obs, reward, done, info
         # TODO we get many observations before we get a reward, how to handle that?
-        obs = self._get_observation()
+        
+        received_reward = False
+        while(not received_reward):
+          message = self._socket.recv_json()
+          if "inferenceData" in message["type"]:
+            obs = self._get_observation(message["data"])
+          elif "reward" in message["type"]:
+            (violations, wirelength) = self._receive_reward(message["data"])
+            received_reward = True
+          else:
+            raise TypeError("Unexpected JSON message type.")
 
-
-        (violations, wirelength) = self._receive_reward()
         violation_improvement = (
             1
-            if self.violations == 0
+            if self._violations == 0
             else (self._violations - violations) / self._violations
         )
         wirelength_improvement = (
@@ -104,7 +113,8 @@ class OrderNetEnv(Env):
         )
 
         # get metrics after the first pass of the detailed router
-        (violations, wirelength) = self._receive_reward()
+        message = self._socket.recv_json()
+        (violations, wirelength) = self._receive_reward(message["data"])
         self._violations = violations
         self._wirelength = wirelength
 
@@ -125,32 +135,35 @@ class OrderNetEnv(Env):
         self._socket = self._context.socket(zmq.REP)
         self._socket.bind("tcp://*:5555")
 
-    def _receive_reward(self) -> Tuple[int, int]:
+    def _receive_reward(self, data: Dict) -> Tuple[int, int]:
         """
         Waits to receive the reward from tritonroute.
         Returns (numViolations, wireLength)
         """
-        message = self._socket.recv_json()
         print("reward: ")
-        print(message)
-        if message["type"] and message["type"] == "reward":
-            self._socket.send_string("ack")
-
-        return (message["data"]["numViolations"], message["data"]["wireLength"])
-
-
-    def _get_observation(self) -> GymObs:
-        message = self._socket.recv_json()
-
-        print("observation: ")
-        print(message)
-
-        if message["type"] is None or message["type"] != "inferenceData":
-            raise TypeError("Expected inference data type")
+        print(data)
         
-        infData = message["data"]
-        nets = infData["nets"]
+        
+        self._socket.send_string("ack")
+
+        return (data["numViolations"], data["wireLength"])
+
+
+    def _get_observation(self, data: Dict) -> GymObs:
+     
+        routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
+        routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
+
+        with_pins = filter(lambda net: "pins" in net, data["nets"])
+        pins = [x["pins"] for x in with_pins]
+        pins = [p for pin in pins for p in pin]
+        max_z = [max(p["h"]["z"], p["l"]["z"]) for p in pins]
+        num_layers = max(max_z)
+
+        nets = data["nets"]
         random.shuffle(nets)
+
+        
 
         # send the net ordering back to the responder
         order = {}

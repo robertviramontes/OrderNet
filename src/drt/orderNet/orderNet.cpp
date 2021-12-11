@@ -4,6 +4,7 @@
 #include <sstream>
 #include "odb/geom.h"
 #include "dr/FlexDR.h"
+#include "dr/FlexMazeTypes.h"
 
 #define PMODULE_NAME "OrderNet"
 #define PCLASS_NAME "OrderNet"
@@ -59,12 +60,29 @@ OrderNet::~OrderNet() {
 
 void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets) {
   Rect routeBox;
-  worker->getRouteBox(routeBox);
-  json jRect;
-  jRect["xlo"] = routeBox.xMin(); jRect["xhi"] = routeBox.xMax();
-  jRect["ylo"] = routeBox.yMin(); jRect["yhi"] = routeBox.yMax();
 
-  sender_.connect ("tcp://localhost:5555");
+  auto gridGraph = worker->getGridGraph();
+  odb::Point lowerRouteBoxPt, upperRouteBoxPt;
+  worker->getRouteBox(routeBox);
+  
+  lowerRouteBoxPt.setX(routeBox.xMin());
+  lowerRouteBoxPt.setY(routeBox.yMin());
+  upperRouteBoxPt.setX(routeBox.xMax());
+  upperRouteBoxPt.setY(routeBox.yMax());
+  
+  fr::FlexMazeIdx lowerRouteBoxIdx, upperRouteBoxIdx;
+  gridGraph.getMazeIdx(
+    lowerRouteBoxIdx,
+    lowerRouteBoxPt,
+    0);
+  gridGraph.getMazeIdx(
+    upperRouteBoxIdx,
+    upperRouteBoxPt,
+    0);
+  
+  json jRect;
+  jRect["xlo"] = lowerRouteBoxIdx.x(); jRect["xhi"] = lowerRouteBoxIdx.y();
+  jRect["ylo"] = upperRouteBoxIdx.x(); jRect["yhi"] = upperRouteBoxIdx.y();
 
   json jInferenceData;
   jInferenceData["type"] = "inferenceData";
@@ -76,18 +94,21 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
     jNet["name"] = frNet->getName();
     json jPins;
     for (auto& pin:net->getPins()) {
-      auto pinFigs = pin->getFigs();
-      Rect pinBbox;
-      pinFigs->getBBox(pinBbox);
+      fr::FlexMazeIdx l; fr::FlexMazeIdx h;
+      pin->getAPBbox(l, h);
       json jPin;
-      rectToJson(pinBbox, jPin);
+      jPin["l"]["x"] = l.x(); jPin["l"]["y"] = l.y(); jPin["l"]["z"] = l.z(); 
+      jPin["h"]["x"] = h.x(); jPin["h"]["y"] = h.y(); jPin["h"]["z"] = h.z(); 
+      jNet["pins"].push_back(jPin);
     }
 
     jNets.push_back(jNet); 
   }
 
   jInferenceData["data"]["nets"] = jNets;
-
+  jInferenceData["data"]["routeBox"] = jRect;
+  
+  sender_.connect ("tcp://localhost:5555");
 
   auto msg = jsonInMessage(jInferenceData);
   sender_.send (msg, zmq::send_flags::none);
@@ -97,11 +118,6 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
   sender_.recv (reply, zmq::recv_flags::none);
 
   sortFromResponse(ripupNets, reply);
-
-  for (auto net:ripupNets) {
-    std::cerr << net->getFrNet()->getName() << std::endl;
-  }
-
 
   sender_.disconnect("tcp://localhost:5555");
 }
@@ -134,16 +150,9 @@ void OrderNet::SendReward(int numViolations, unsigned long long wireLength) {
   auto msg = jsonInMessage(jRewards);
   sender_.send (msg, zmq::send_flags::none);
 
-  // The python application responds with the net ordering
+  // The python application responds with an ack
   zmq::message_t reply;
   sender_.recv (reply, zmq::recv_flags::none);
-
-  // sortFromResponse(ripupNets, reply);
-
-  // for (auto net:ripupNets) {
-  //   std::cerr << net->getFrNet()->getName() << std::endl;
-  // }
-
 
   sender_.disconnect("tcp://localhost:5555");
 }
