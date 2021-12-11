@@ -23,7 +23,7 @@ script_path = "/home/share/ispd_sample2.tcl"
 env = OrderNetEnv(str(executable_name), script_path)
 # check_env(env)
 
-model = A2C('MlpPolicy', env).learn(total_timesteps=2)
+model = A2C("MlpPolicy", env).learn(total_timesteps=2)
 
 # p.wait()
 

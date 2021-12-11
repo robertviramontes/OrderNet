@@ -32,6 +32,7 @@ import zmq
 import random
 import json
 
+
 class OrderNetEnv(Env):
     """
     Implements the custom OrderNet learning environment for OpenAI Gym.
@@ -64,17 +65,17 @@ class OrderNetEnv(Env):
     def step(self, action) -> GymStepReturn:
         # The `step()` method must return four values: obs, reward, done, info
         # TODO we get many observations before we get a reward, how to handle that?
-        
+
         received_reward = False
-        while(not received_reward):
-          message = self._socket.recv_json()
-          if "inferenceData" in message["type"]:
-            obs = self._get_observation(message["data"])
-          elif "reward" in message["type"]:
-            (violations, wirelength) = self._receive_reward(message["data"])
-            received_reward = True
-          else:
-            raise TypeError("Unexpected JSON message type.")
+        while not received_reward:
+            message = self._socket.recv_json()
+            if "inferenceData" in message["type"]:
+                obs = self._get_observation(message["data"])
+            elif "reward" in message["type"]:
+                (violations, wirelength) = self._receive_reward(message["data"])
+                received_reward = True
+            else:
+                raise TypeError("Unexpected JSON message type.")
 
         violation_improvement = (
             1
@@ -88,7 +89,7 @@ class OrderNetEnv(Env):
         )
         # reward is the sum of the violation and wirelength improvemnets
         reward = violation_improvement + wirelength_improvement
-        done = True # for now, there is one step possible
+        done = True  # for now, there is one step possible
         info = {}
         return obs, reward, done, info
 
@@ -100,7 +101,7 @@ class OrderNetEnv(Env):
                 self._router_process.wait(1)
             except:
                 self._router_process.terminate()
-        t = self._socket.poll(500) # discard any messages from the killed process
+        t = self._socket.poll(500)  # discard any messages from the killed process
         for i in range(t):
             self._socket.recv()
             self._socket.send_string("ack")
@@ -108,8 +109,7 @@ class OrderNetEnv(Env):
         # Start the router and get the information from the first run
         # which should generate the initial violations we look to fix
         self._router_process = subprocess.Popen(
-            [self._executable_path, self._script_path],
-            stdout=subprocess.PIPE
+            [self._executable_path, self._script_path], stdout=subprocess.PIPE
         )
 
         # get metrics after the first pass of the detailed router
@@ -142,15 +142,13 @@ class OrderNetEnv(Env):
         """
         print("reward: ")
         print(data)
-        
-        
+
         self._socket.send_string("ack")
 
         return (data["numViolations"], data["wireLength"])
 
-
     def _get_observation(self, data: Dict) -> GymObs:
-     
+
         routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
         routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
 
@@ -163,12 +161,10 @@ class OrderNetEnv(Env):
         nets = data["nets"]
         random.shuffle(nets)
 
-        
-
         # send the net ordering back to the responder
         order = {}
         for i, net in enumerate(nets):
             order[net["name"]] = i
 
         self._socket.send_json(order)
-        return  np.random.rand(*self._obs_space_shape)
+        return np.random.rand(*self._obs_space_shape)
