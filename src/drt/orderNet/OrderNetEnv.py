@@ -55,8 +55,9 @@ class OrderNetEnv(Env):
         self._router_process: Optional[subprocess.Popen] = None
 
         self._num_layers = 9
-        self._obs_space_shape = (200, 200)
+        self._obs_space_shape = (9, 200, 200)
         self._nets_to_order = []
+        self._net_numbering = {}
 
         self.action_space = spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Box(
@@ -111,6 +112,7 @@ class OrderNetEnv(Env):
     def reset(self) -> GymObs:
         print("resetting")
         self._num_resets += 1
+        self._net_numbering = {}
 
         self._cleanup_dangling_process()
 
@@ -179,6 +181,15 @@ class OrderNetEnv(Env):
 
         return (data["numViolations"], data["wireLength"])
 
+    def _in_routebox(self, pin: Point, routeBoxMin: Point, routeBoxMax: Point) -> bool:
+        in_routebox = True
+        in_routebox &= pin.x >= routeBoxMin.x
+        in_routebox &= pin.x <= routeBoxMax.x
+        in_routebox &= pin.y >= routeBoxMin.y
+        in_routebox &= pin.y <= routeBoxMax.y
+
+        return in_routebox
+
     def _get_observation(self, message: Dict) -> GymObs:
 
         if not "inferenceData" in message["type"]:
@@ -189,42 +200,94 @@ class OrderNetEnv(Env):
         routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
         routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
 
-        routeBoxXRange = abs(routeBoxMax.x - routeBoxMin.x)
-        routeBoxYRange = abs(routeBoxMax.y - routeBoxMin.y)
+        routeBoxXRange = abs(routeBoxMax.x - routeBoxMin.x) + 1
+        routeBoxYRange = abs(routeBoxMax.y - routeBoxMin.y) + 1
 
         with_pins = list(filter(lambda net: "pins" in net, data["nets"]))
         # TODO in this, we assume pins are the most important feature.
         # hence, we can just (randomly shuffle?) the nets without pins
         without_pins = list(filter(lambda net: "pins" not in net, data["nets"]))
-        self._create_pin_maps(routeBoxXRange, routeBoxYRange, routeBoxMin, with_pins)
+        with_pins_in_routebox = []
+
+        # filter to only get pins in the range of our routebox!
+        for net in with_pins:
+            pins = []
+            for pin in net["pins"]:
+                if self._in_routebox(
+                    Point(pin["l"]["x"], pin["l"]["y"]), routeBoxMin, routeBoxMax
+                ) and self._in_routebox(
+                    Point(pin["h"]["x"], pin["h"]["y"]), routeBoxMin, routeBoxMax
+                ):
+                    pins.append(pin)
+            if len(pins) > 0:
+                update_net = {}
+                update_net["name"] = net["name"]
+                update_net["pins"] = pins
+                with_pins_in_routebox.append(update_net)
+
+        self._net_numbering = {}
+        pin_map = self._create_pin_maps(
+            with_pins_in_routebox, routeBoxXRange, routeBoxYRange, routeBoxMin
+        )
 
         self._nets_to_order = data["nets"]
 
-        return np.random.rand(*self._obs_space_shape)
+        return pin_map
 
     def _create_pin_maps(
         self,
+        nets: List,
         routeBoxXRange: int,
         routeBoxYRange: int,
         routeBoxMin: Point,
-        nets: List,
-    ):
+    ) -> np.array:
         pin_array = np.zeros(
-            (self._num_layers, self._obs_space_shape[1], self._obs_space_shape[0]),
+            (self._num_layers, routeBoxYRange, routeBoxXRange),
             dtype=np.float32,
         )
         for i, net in enumerate(nets):
+            self._net_numbering[i] = net["name"]
             for pin in net["pins"]:
                 z = pin["h"]["z"]
-                xl = pin["l"]["x"]
-                yl = pin["l"]["y"]
-                xh = pin["h"]["x"]
-                yh = pin["h"]["y"]
-                # pin indices are 1 indexed, np is 1 indexed?
-                pin_array[z][yl][xl] = i
-                pin_array[z][yh][xh] = i
+                low = Point(
+                    pin["l"]["x"] - routeBoxMin.x, pin["l"]["y"] - routeBoxMin.y
+                )
+                high = Point(
+                    pin["h"]["x"] - routeBoxMin.x, pin["h"]["y"] - routeBoxMin.y
+                )
 
-        print(pin_array)
+                minX = min(high.x, low.x)
+                minY = min(high.y, low.y)
+
+                # fill the entire range of the pins access box
+                for tx in range(abs(high.x - low.x) + 1):
+                    for ty in range(abs(high.y - low.y) + 1):
+                        pin_array[z][minY + ty][minX + tx] = (i + 1) * 10
+
+        # pad the pin array to the size of the observation
+        x_padding_required = self._obs_space_shape[2] - routeBoxXRange
+        y_padding_required = self._obs_space_shape[1] - routeBoxYRange
+
+        # get the pin padding
+        def padding_helper(padding_required) -> Tuple:
+            if padding_required % 2 == 0:
+                pad_a = int(padding_required / 2)
+                pad_b = int(padding_required / 2)
+            else:
+                pad_a = math.floor(padding_required / 2)
+                pad_b = math.ceil(padding_required / 2)
+
+            return (pad_a, pad_b)
+
+        (x_pad_left, x_pad_right) = padding_helper(x_padding_required)
+        (y_pad_top, y_pad_bottom) = padding_helper(y_padding_required)
+        pin_array_padded = np.pad(
+            pin_array,
+            [(0, 0), (y_pad_top, y_pad_bottom), (x_pad_left, x_pad_right)],
+            mode="constant",
+            constant_values=[(0, 0), (0, 0), (0, 0)],
+        )
+        return pin_array_padded
 
     def _send_ordering(self, action):
         """Sends the net ordering indicated in action to the router."""
