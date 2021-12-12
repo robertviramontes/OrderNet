@@ -72,6 +72,10 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
 
   std::vector<int> z_used;
 
+  auto contains = [](std::vector<int> vec, int val){
+    return std::find(vec.begin(), vec.end(), val) != vec.end();
+  };
+
   json jNets; 
   for (auto net:ripupNets) {
     json jNet;
@@ -81,12 +85,16 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
     for (auto& pin:net->getPins()) {
       fr::FlexMazeIdx l; fr::FlexMazeIdx h;
       pin->getAPBbox(l, h);
+      
       json jPin;
       jPin["l"]["x"] = l.x(); jPin["l"]["y"] = l.y(); jPin["l"]["z"] = l.z();
-      if (std::find(z_used.begin(), z_used.end(), l.z()) == z_used.end()) z_used.push_back(l.z()); 
+      int l_layer_num = gridGraph.getLayerNum(l.z());
+      if (!contains(z_used, l_layer_num)) z_used.push_back(l_layer_num); 
+
       jPin["h"]["x"] = h.x(); jPin["h"]["y"] = h.y(); jPin["h"]["z"] = h.z();
-      if (std::find(z_used.begin(), z_used.end(), h.z()) == z_used.end()) z_used.push_back(h.z()); 
-      
+      int h_layer_num = gridGraph.getLayerNum(h.z());
+      if (!contains(z_used, h_layer_num)) z_used.push_back(h_layer_num); 
+
       jNet["pins"].push_back(jPin);
     }
 
@@ -113,7 +121,7 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
     json jRect;
     jRect["xlo"] = lowerRouteBoxIdx.x(); jRect["xhi"] = upperRouteBoxIdx.x();
     jRect["ylo"] = upperRouteBoxIdx.x(); jRect["yhi"] = upperRouteBoxIdx.y();
-    jRect["z"] = z;
+    jRect["z"] = lowerRouteBoxIdx.z();
 
     jRects.push_back(jRect);
   }
