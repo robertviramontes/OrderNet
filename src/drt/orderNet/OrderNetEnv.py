@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import subprocess
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from gym import Env, spaces
 import numpy as np
 from numpy.core.fromnumeric import std
@@ -31,6 +31,12 @@ from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import zmq
 import random
 import math
+
+
+class Point:
+    def __init__(self, x=0, y=0):
+        self.x = x
+        self.y = y
 
 
 class OrderNetEnv(Env):
@@ -48,8 +54,8 @@ class OrderNetEnv(Env):
         self._script_path = script_path
         self._router_process: Optional[subprocess.Popen] = None
 
-        self._num_layers = 1
-        self._obs_space_shape = (1,)
+        self._num_layers = 9
+        self._obs_space_shape = (200, 200)
         self._nets_to_order = []
 
         self.action_space = spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -124,8 +130,9 @@ class OrderNetEnv(Env):
         while not receivedReward:
             message = self._socket.recv_json()
             if "reward" in message["type"] and message["lastInIteration"]:
-                    receivedReward = True
+                receivedReward = True
             else:
+                self._get_first_observation(message)
                 self._socket.send_string("ack")
 
         (violations, wirelength) = self._receive_reward(message)
@@ -179,22 +186,45 @@ class OrderNetEnv(Env):
 
         data = message["data"]
 
-        routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
-        routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
+        routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
+        routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
 
-        routeBoxXRange = abs(routeBoxMax[0] - routeBoxMin[0])
-        routeBoxYRange = abs(routeBoxMax[1] - routeBoxMin[1])
+        routeBoxXRange = abs(routeBoxMax.x - routeBoxMin.x)
+        routeBoxYRange = abs(routeBoxMax.y - routeBoxMin.y)
 
-        print("routeBoxX: " + str(routeBoxXRange))  # x range
-        print("routeBoxY: " + str(routeBoxYRange))  # y range
-
-        with_pins = filter(lambda net: "pins" in net, data["nets"])
-        pins = [x["pins"] for x in with_pins]
-        pins = [p for pin in pins for p in pin]
+        with_pins = list(filter(lambda net: "pins" in net, data["nets"]))
+        # TODO in this, we assume pins are the most important feature.
+        # hence, we can just (randomly shuffle?) the nets without pins
+        without_pins = list(filter(lambda net: "pins" not in net, data["nets"]))
+        self._create_pin_maps(routeBoxXRange, routeBoxYRange, routeBoxMin, with_pins)
 
         self._nets_to_order = data["nets"]
 
         return np.random.rand(*self._obs_space_shape)
+
+    def _create_pin_maps(
+        self,
+        routeBoxXRange: int,
+        routeBoxYRange: int,
+        routeBoxMin: Point,
+        nets: List,
+    ):
+        pin_array = np.zeros(
+            (self._num_layers, self._obs_space_shape[1], self._obs_space_shape[0]),
+            dtype=np.float32,
+        )
+        for i, net in enumerate(nets):
+            for pin in net["pins"]:
+                z = pin["h"]["z"]
+                xl = pin["l"]["x"]
+                yl = pin["l"]["y"]
+                xh = pin["h"]["x"]
+                yh = pin["h"]["y"]
+                # pin indices are 1 indexed, np is 1 indexed?
+                pin_array[z][yl][xl] = i
+                pin_array[z][yh][xh] = i
+
+        print(pin_array)
 
     def _send_ordering(self, action):
         """Sends the net ordering indicated in action to the router."""
@@ -214,26 +244,23 @@ class OrderNetEnv(Env):
 
         data = message["data"]
 
-        routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
-        routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
+        # routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
+        # routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
 
-        routeBoxXRange = abs(routeBoxMax[0] - routeBoxMin[0])
-        routeBoxYRange = abs(routeBoxMax[1] - routeBoxMin[1])
+        # routeBoxXRange = abs(routeBoxMax[0] - routeBoxMin[0])
+        # routeBoxYRange = abs(routeBoxMax[1] - routeBoxMin[1])
 
         # update the observation space based on the observed worker grid size.
-        self._obs_space_shape = (
-            math.ceil(routeBoxXRange * 1.5),
-            math.ceil(routeBoxYRange),
-        )
-        self.observation_space = spaces.Box(
-            low=0, high=1, shape=self._obs_space_shape, dtype=np.float32
-        )
+        # newXRange = max(math.ceil(routeBoxXRange * 1.5), self._obs_space_shape[0])
+        # newYRange = max(math.ceil(routeBoxYRange * 1.5), self._obs_space_shape[1])
+        # self._obs_space_shape = (newXRange, newYRange)
 
-        with_pins = filter(lambda net: "pins" in net, data["nets"])
-        pins = [x["pins"] for x in with_pins]
-        pins = [p for pin in pins for p in pin]
-        max_z = [max(p["h"]["z"], p["l"]["z"]) for p in pins]
-        self._num_layers = max(max_z)
+        # self.observation_space = spaces.Box(
+        #     low=0, high=1, shape=self._obs_space_shape, dtype=np.float32
+        # )
+
+        # for some reason, this over-reports the number of layers in the design?
+        # self._num_layers = data["numLayers"]
 
         self._nets_to_order = data["nets"]
 

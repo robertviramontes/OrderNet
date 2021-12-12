@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <algorithm>
 #include "odb/geom.h"
 #include "dr/FlexDR.h"
 #include "dr/FlexMazeTypes.h"
@@ -65,29 +66,12 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
   auto gridGraph = worker->getGridGraph();
   odb::Point lowerRouteBoxPt, upperRouteBoxPt;
   worker->getRouteBox(routeBox);
-  
-  lowerRouteBoxPt.setX(routeBox.xMin());
-  lowerRouteBoxPt.setY(routeBox.yMin());
-  upperRouteBoxPt.setX(routeBox.xMax());
-  upperRouteBoxPt.setY(routeBox.yMax());
-  
-  fr::FlexMazeIdx lowerRouteBoxIdx, upperRouteBoxIdx;
-  gridGraph.getMazeIdx(
-    lowerRouteBoxIdx,
-    lowerRouteBoxPt,
-    0);
-  gridGraph.getMazeIdx(
-    upperRouteBoxIdx,
-    upperRouteBoxPt,
-    0);
-  
-  json jRect;
-  jRect["xlo"] = lowerRouteBoxIdx.x(); jRect["xhi"] = upperRouteBoxIdx.x();
-  jRect["ylo"] = upperRouteBoxIdx.x(); jRect["yhi"] = upperRouteBoxIdx.y();
 
   json jInferenceData;
   jInferenceData["type"] = "inferenceData";
-  
+
+  std::vector<int> z_used;
+
   json jNets; 
   for (auto net:ripupNets) {
     json jNet;
@@ -98,16 +82,47 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
       fr::FlexMazeIdx l; fr::FlexMazeIdx h;
       pin->getAPBbox(l, h);
       json jPin;
-      jPin["l"]["x"] = l.x(); jPin["l"]["y"] = l.y(); jPin["l"]["z"] = l.z(); 
-      jPin["h"]["x"] = h.x(); jPin["h"]["y"] = h.y(); jPin["h"]["z"] = h.z(); 
+      jPin["l"]["x"] = l.x(); jPin["l"]["y"] = l.y(); jPin["l"]["z"] = l.z();
+      if (std::find(z_used.begin(), z_used.end(), l.z()) == z_used.end()) z_used.push_back(l.z()); 
+      jPin["h"]["x"] = h.x(); jPin["h"]["y"] = h.y(); jPin["h"]["z"] = h.z();
+      if (std::find(z_used.begin(), z_used.end(), h.z()) == z_used.end()) z_used.push_back(h.z()); 
+      
       jNet["pins"].push_back(jPin);
     }
 
     jNets.push_back(jNet); 
   }
 
+  json jRects;
+  for (auto z:z_used) {
+    lowerRouteBoxPt.setX(routeBox.xMin());
+    lowerRouteBoxPt.setY(routeBox.yMin());
+    upperRouteBoxPt.setX(routeBox.xMax());
+    upperRouteBoxPt.setY(routeBox.yMax());
+    
+    fr::FlexMazeIdx lowerRouteBoxIdx, upperRouteBoxIdx;
+    gridGraph.getMazeIdx(
+      lowerRouteBoxIdx,
+      lowerRouteBoxPt,
+      z);
+    gridGraph.getMazeIdx(
+      upperRouteBoxIdx,
+      upperRouteBoxPt,
+      z);
+    
+    json jRect;
+    jRect["xlo"] = lowerRouteBoxIdx.x(); jRect["xhi"] = upperRouteBoxIdx.x();
+    jRect["ylo"] = upperRouteBoxIdx.x(); jRect["yhi"] = upperRouteBoxIdx.y();
+    jRect["z"] = z;
+
+    jRects.push_back(jRect);
+  }
+
   jInferenceData["data"]["nets"] = jNets;
-  jInferenceData["data"]["routeBox"] = jRect;
+  jInferenceData["data"]["routeBoxes"] = jRects;
+
+  auto numLayers = worker->getTech()->getLayers().size();
+  jInferenceData["data"]["numLayers"] = numLayers;
   
   sender_.connect ("tcp://localhost:5555");
   zmq::message_t reply;
