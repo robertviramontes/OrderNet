@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <string>
 #include "odb/geom.h"
 #include "dr/FlexDR.h"
 #include "dr/FlexMazeTypes.h"
@@ -58,7 +59,7 @@ OrderNet::~OrderNet() {
 
 }
 
-void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets) {
+void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets, bool willSort) {
   Rect routeBox;
 
   auto gridGraph = worker->getGridGraph();
@@ -81,7 +82,7 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
     0);
   
   json jRect;
-  jRect["xlo"] = lowerRouteBoxIdx.x(); jRect["xhi"] = lowerRouteBoxIdx.y();
+  jRect["xlo"] = lowerRouteBoxIdx.x(); jRect["xhi"] = upperRouteBoxIdx.x();
   jRect["ylo"] = upperRouteBoxIdx.x(); jRect["yhi"] = upperRouteBoxIdx.y();
 
   json jInferenceData;
@@ -109,22 +110,28 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
   jInferenceData["data"]["routeBox"] = jRect;
   
   sender_.connect ("tcp://localhost:5555");
-
-  auto msg = jsonInMessage(jInferenceData);
-  sender_.send (msg, zmq::send_flags::none);
-
-  // The python application responds with the net ordering
   zmq::message_t reply;
+
+  sendJson(jInferenceData);
+  // Ack back
   sender_.recv (reply, zmq::recv_flags::none);
 
-  sortFromResponse(ripupNets, reply);
+  // The python application responds with the net ordering
+  // If not willSort, Python should be sending an ack that we can ignore.
+  if (willSort) {
+    json jRequestSort;
+    jRequestSort["type"] = "requestSort";
+    sendJson(jRequestSort);
+    sender_.recv(reply, zmq::recv_flags::none);
+    sortFromResponse(ripupNets, reply);
+  }
 
   sender_.disconnect("tcp://localhost:5555");
 }
 
 void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message_t& reply) {
   // Convert the response to json object
-  auto response = json::parse(static_cast<char*>(reply.data()));
+  auto response = json::parse(std::string(static_cast<char*>(reply.data()), reply.size()));
 
   auto responseComp = [response](fr::drNet* const& a, fr::drNet* const& b) {
     // Sort based on the ordering in the response from the model
@@ -136,19 +143,20 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message
   sort(ripupNets.begin(), ripupNets.end(), responseComp);
 }
 
-void OrderNet::SendReward(int numViolations, unsigned long long wireLength) {
+void OrderNet::SendReward(int drIter, bool lastInIteration, int numViolations, unsigned long long wireLength) {
   sender_.connect ("tcp://localhost:5555");
 
   json jRewards;
   jRewards["type"] = "reward";
+  jRewards["drIter"] = drIter;
+  jRewards["lastInIteration"] = lastInIteration;
 
   json jMetrics;
   jMetrics["numViolations"] = numViolations;
   jMetrics["wireLength"] = wireLength;
   jRewards["data"] = jMetrics;
 
-  auto msg = jsonInMessage(jRewards);
-  sender_.send (msg, zmq::send_flags::none);
+  sendJson(jRewards);
 
   // The python application responds with an ack
   zmq::message_t reply;
@@ -157,11 +165,11 @@ void OrderNet::SendReward(int numViolations, unsigned long long wireLength) {
   sender_.disconnect("tcp://localhost:5555");
 }
 
-zmq::message_t OrderNet::jsonInMessage(json& j) {
+void OrderNet::sendJson(json& j) {
   std::string jString = j.dump(4);
   zmq::message_t msg (jString.length());
   memcpy (msg.data(), jString.c_str(), strlen(jString.c_str()));
-  return msg;
+  sender_.send (msg, zmq::send_flags::none);
 }
 
 void OrderNet::rectToJson(const Rect *rect, json j) {

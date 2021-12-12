@@ -30,7 +30,7 @@ from numpy.core.fromnumeric import std
 from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import zmq
 import random
-import json
+import math
 
 
 class OrderNetEnv(Env):
@@ -48,7 +48,9 @@ class OrderNetEnv(Env):
         self._script_path = script_path
         self._router_process: Optional[subprocess.Popen] = None
 
+        self._num_layers = 1
         self._obs_space_shape = (1,)
+        self._nets_to_order = []
 
         self.action_space = spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Box(
@@ -65,17 +67,15 @@ class OrderNetEnv(Env):
     def step(self, action) -> GymStepReturn:
         # The `step()` method must return four values: obs, reward, done, info
         # TODO we get many observations before we get a reward, how to handle that?
+        print("stepping")
 
-        received_reward = False
-        while not received_reward:
-            message = self._socket.recv_json()
-            if "inferenceData" in message["type"]:
-                obs = self._get_observation(message["data"])
-            elif "reward" in message["type"]:
-                (violations, wirelength) = self._receive_reward(message["data"])
-                received_reward = True
-            else:
-                raise TypeError("Unexpected JSON message type.")
+        # First, write the net ordering to TritonRoute from the action
+        self._socket.recv_json()
+        self._send_ordering(action)
+
+        # Then, get the reward for the net ordering we just applied
+        message = self._socket.recv_json()
+        (violations, wirelength) = self._receive_reward(message)
 
         violation_improvement = (
             1
@@ -87,24 +87,26 @@ class OrderNetEnv(Env):
             if self._wirelength == 0
             else (self._wirelength - wirelength) / self._wirelength
         )
+
         # reward is the sum of the violation and wirelength improvemnets
         reward = violation_improvement + wirelength_improvement
-        done = True  # for now, there is one step possible
+
+        # finally, get the observation for the next set of nets to order
+        # this updated observation of the state gets returned from the step
+        message = self._socket.recv_json()
+        self._get_observation(message)
+        self._socket.send_string("ack")
+
+        done = violations == 0
         info = {}
+        obs = np.random.rand(*self._obs_space_shape)
         return obs, reward, done, info
 
     def reset(self) -> GymObs:
+        print("resetting")
         self._num_resets += 1
 
-        if isinstance(self._router_process, subprocess.Popen):
-            try:
-                self._router_process.wait(1)
-            except:
-                self._router_process.terminate()
-        t = self._socket.poll(500)  # discard any messages from the killed process
-        for i in range(t):
-            self._socket.recv()
-            self._socket.send_string("ack")
+        self._cleanup_dangling_process()
 
         # Start the router and get the information from the first run
         # which should generate the initial violations we look to fix
@@ -112,11 +114,29 @@ class OrderNetEnv(Env):
             [self._executable_path, self._script_path], stdout=subprocess.PIPE
         )
 
-        # get metrics after the first pass of the detailed router
+        # get metrics about the workers in this design
         message = self._socket.recv_json()
-        (violations, wirelength) = self._receive_reward(message["data"])
+        self._get_first_observation(message)
+        self._socket.send_string("ack")
+
+        # get metrics after the first pass of the detailed router
+        receivedReward = False
+        while not receivedReward:
+            message = self._socket.recv_json()
+            if "reward" in message["type"] and message["lastInIteration"]:
+                    receivedReward = True
+            else:
+                self._socket.send_string("ack")
+
+        (violations, wirelength) = self._receive_reward(message)
         self._violations = violations
         self._wirelength = wirelength
+
+        # finally get an observation of optimization iteration #1
+        if self._num_resets > 0:
+            message = self._socket.recv_json()
+            self._get_observation(message)
+            message = self._socket.send_string("ack")
 
         # reset must return an initial observation value
         return np.random.rand(*self._obs_space_shape)
@@ -135,11 +155,16 @@ class OrderNetEnv(Env):
         self._socket = self._context.socket(zmq.REP)
         self._socket.bind("tcp://*:5555")
 
-    def _receive_reward(self, data: Dict) -> Tuple[int, int]:
+    def _receive_reward(self, message: Dict) -> Tuple[int, int]:
         """
         Waits to receive the reward from tritonroute.
         Returns (numViolations, wireLength)
         """
+
+        if not "reward" in message["type"]:
+            raise TypeError("Expected reward type message.")
+
+        data = message["data"]
         print("reward: ")
         print(data)
 
@@ -147,24 +172,80 @@ class OrderNetEnv(Env):
 
         return (data["numViolations"], data["wireLength"])
 
-    def _get_observation(self, data: Dict) -> GymObs:
+    def _get_observation(self, message: Dict) -> GymObs:
+
+        if not "inferenceData" in message["type"]:
+            raise TypeError("Expected inference data type message.")
+
+        data = message["data"]
 
         routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
         routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
+
+        routeBoxXRange = abs(routeBoxMax[0] - routeBoxMin[0])
+        routeBoxYRange = abs(routeBoxMax[1] - routeBoxMin[1])
+
+        print("routeBoxX: " + str(routeBoxXRange))  # x range
+        print("routeBoxY: " + str(routeBoxYRange))  # y range
+
+        with_pins = filter(lambda net: "pins" in net, data["nets"])
+        pins = [x["pins"] for x in with_pins]
+        pins = [p for pin in pins for p in pin]
+
+        self._nets_to_order = data["nets"]
+
+        return np.random.rand(*self._obs_space_shape)
+
+    def _send_ordering(self, action):
+        """Sends the net ordering indicated in action to the router."""
+        random.shuffle(self._nets_to_order)
+
+        # send the net ordering back to the responder
+        order = {}
+        for i, net in enumerate(self._nets_to_order):
+            order[net["name"]] = i
+
+        self._socket.send_json(order)
+
+    def _get_first_observation(self, message: Dict) -> GymObs:
+        """Gets the first observation after a reset."""
+        if not "inferenceData" in message["type"]:
+            raise TypeError("Expected inference data type message.")
+
+        data = message["data"]
+
+        routeBoxMin = (data["routeBox"]["xlo"], data["routeBox"]["ylo"])
+        routeBoxMax = (data["routeBox"]["xhi"], data["routeBox"]["yhi"])
+
+        routeBoxXRange = abs(routeBoxMax[0] - routeBoxMin[0])
+        routeBoxYRange = abs(routeBoxMax[1] - routeBoxMin[1])
+
+        # update the observation space based on the observed worker grid size.
+        self._obs_space_shape = (
+            math.ceil(routeBoxXRange * 1.5),
+            math.ceil(routeBoxYRange),
+        )
+        self.observation_space = spaces.Box(
+            low=0, high=1, shape=self._obs_space_shape, dtype=np.float32
+        )
 
         with_pins = filter(lambda net: "pins" in net, data["nets"])
         pins = [x["pins"] for x in with_pins]
         pins = [p for pin in pins for p in pin]
         max_z = [max(p["h"]["z"], p["l"]["z"]) for p in pins]
-        num_layers = max(max_z)
+        self._num_layers = max(max_z)
 
-        nets = data["nets"]
-        random.shuffle(nets)
+        self._nets_to_order = data["nets"]
 
-        # send the net ordering back to the responder
-        order = {}
-        for i, net in enumerate(nets):
-            order[net["name"]] = i
-
-        self._socket.send_json(order)
         return np.random.rand(*self._obs_space_shape)
+
+    def _cleanup_dangling_process(self):
+        if isinstance(self._router_process, subprocess.Popen):
+            try:
+                self._router_process.wait(1)
+            except:
+                self._router_process.terminate()
+        t = self._socket.poll(500)  # discard any messages from the killed process
+        for i in range(t):
+            self._socket.recv()
+            self._socket.send_string("ack")

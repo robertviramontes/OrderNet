@@ -1567,6 +1567,30 @@ void FlexDR::searchRepair(int iter,
           workersInBatch[i]->main(getDesign());
 #pragma omp critical
           {
+            #if USE_ORDERNET
+              using ULL = unsigned long long;
+              vector<ULL> wlen(getTech()->getLayers().size(), 0);
+              Point bp, ep;
+              for (auto& net : getDesign()->getTopBlock()->getNets()) {
+                for (auto& shape : net->getShapes()) {
+                  if (shape->typeId() == frcPathSeg) {
+                    auto obj = static_cast<frPathSeg*>(shape.get());
+                    obj->getPoints(bp, ep);
+                    auto lNum = obj->getLayerNum();
+                    frCoord psLen = ep.x() - bp.x() + ep.y() - bp.y();
+                    wlen[lNum] += psLen;
+                  }
+                }
+              }
+              const ULL totWlen = std::accumulate(wlen.begin(), wlen.end(), ULL(0));
+
+              orderNet_->SendReward(
+                iter,
+                i == (int) workersInBatch.size() - 1,
+                getDesign()->getTopBlock()->getNumMarkers(),
+                totWlen / getDesign()->getTopBlock()->getDBUPerUU()
+              );
+            #endif
             cnt++;
             if (VERBOSE > 0) {
               if (cnt * 1.0 / tot >= prev_perc / 100.0 + 0.1
@@ -1668,11 +1692,6 @@ void FlexDR::end(bool writeMetrics)
                     totWlen / getDesign()->getTopBlock()->getDBUPerUU());
     logger_->metric("drt::vias::total", totSCut + totMCut);
   }
-
-  orderNet_->SendReward(
-    getDesign()->getTopBlock()->getNumMarkers(),
-    totWlen / getDesign()->getTopBlock()->getDBUPerUU()
-  );
 
   if (VERBOSE > 0) {
     logger_->report("Total wire length = {} um.",
@@ -2014,15 +2033,18 @@ int FlexDR::main()
   int iterNum = 0;
   searchRepair(
       iterNum++ /*  0 */, 7, 0, 3, ROUTESHAPECOST, 0 /*MAARKERCOST*/, 1, true);
-  searchRepair(iterNum++ /*  1 */,
-               7,
-               -2,
-               3,
-               ROUTESHAPECOST,
-               ROUTESHAPECOST /*MAARKERCOST*/,
-               1,
-               true);
-  #if FALSE
+  while (iterNum < 30)
+  {
+    searchRepair(iterNum++ /*  1 */,
+                7,
+                -2,
+                3,
+                ROUTESHAPECOST,
+                ROUTESHAPECOST /*MAARKERCOST*/,
+                1,
+                true);
+  }
+  goto skipSR;
   searchRepair(iterNum++ /*  2 */,
                7,
                -5,
@@ -2365,8 +2387,7 @@ int FlexDR::main()
                MARKERCOST * 16,
                0,
                false);
-#endif
-
+skipSR:
   if (DRC_RPT_FILE != string("")) {
     reportDRC(DRC_RPT_FILE);
   }

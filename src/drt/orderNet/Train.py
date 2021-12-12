@@ -10,7 +10,7 @@ build_dir = os.path.join(os.path.join("/workspaces", "OrderNet"), "build")
 # subprocess.run(["make", "-j8"], cwd=build_dir)
 
 executable_name = str(os.path.join(build_dir, os.path.join("src", "openroad")))
-script_path = "/home/share/ispd_test1.tcl"
+script_path = "/home/share/ispd_sample2.tcl"
 
 env = OrderNetEnv(str(executable_name), script_path)
 # check_env(env)

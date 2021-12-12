@@ -10,6 +10,8 @@
 #include <zmq.hpp>
 #include <nlohmann/json.hpp>
 
+#define USE_ORDERNET 1
+
 
 using  json = nlohmann::json;
 
@@ -24,15 +26,15 @@ public:
   OrderNet();
   ~OrderNet();
 
-  void Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets);
-  void SendReward(int numViolations, unsigned long long wireLength);
+  void Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets, bool willSort);
+  void SendReward(int drIter, bool lastInIteration, int numViolations, unsigned long long wireLength);
 
 private:
   PyObject *pInstance_;
   zmq::context_t context_;
   zmq::socket_t sender_;
   void sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message_t& reply);
-  zmq::message_t jsonInMessage(json& j);
+  void sendJson(json& j);
   void rectToJson(const Rect *rect, json j);
 
 };

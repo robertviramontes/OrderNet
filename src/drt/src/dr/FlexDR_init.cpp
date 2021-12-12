@@ -2691,9 +2691,13 @@ void FlexDRWorker::route_queue_init_queue(queue<RouteQueueEntry>& rerouteQueue)
       ripupNets.push_back(net.get());
     }
     
-    if (drIter_ > 0) orderNet_->Train(this, ripupNets);
-    // sort nets
+    #if USE_ORDERNET
+      orderNet_->Train(this, ripupNets, drIter_ > 0);
+      if (drIter_ == 0) mazeIterInit_sortRerouteNets(0, ripupNets);
+    # else
     mazeIterInit_sortRerouteNets(0, ripupNets);
+    #endif
+    // sort nets
     for (auto& net : ripupNets) {
       routes.push_back({net, 0, true});
       // reserve via because all nets are ripupped
