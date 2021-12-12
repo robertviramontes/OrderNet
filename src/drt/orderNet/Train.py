@@ -1,5 +1,3 @@
-from typing import Dict, List
-from numpy.core.fromnumeric import std
 import os
 from OrderNetEnv import OrderNetEnv
 from stable_baselines3 import A2C
