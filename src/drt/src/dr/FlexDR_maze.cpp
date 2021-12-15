@@ -1477,6 +1477,7 @@ void FlexDRWorker::modPathCost(drConnFig* connFig, int type, bool modEol)
   }
 }
 
+#include <random>  
 bool FlexDRWorker::mazeIterInit_sortRerouteNets(int mazeIter,
                                                 vector<drNet*>& rerouteNets)
 {
@@ -1497,6 +1498,7 @@ bool FlexDRWorker::mazeIterInit_sortRerouteNets(int mazeIter,
   // sort
   if (mazeIter == 0) {
     sort(rerouteNets.begin(), rerouteNets.end(), rerouteNetsComp);
+    // shuffle (rerouteNets.begin(), rerouteNets.end(), std::default_random_engine(0));
     // to be removed
     if (OR_SEED != -1 && rerouteNets.size() >= 2) {
       uniform_int_distribution<int> distribution(0, rerouteNets.size() - 1);

@@ -41,6 +41,8 @@
 #include "frDesign.h"
 #include "gc/FlexGC.h"
 
+class OrderNet; 
+
 using Rectangle = boost::polygon::rectangle_data<int>;
 
 namespace odb {
@@ -166,6 +168,9 @@ class FlexDR
 
   // utility
   void reportDRC(const std::string& file_name);
+
+  // OrderNet
+  unique_ptr<OrderNet> orderNet_;
 };
 
 class FlexDRWorker;
@@ -842,6 +847,11 @@ class FlexDRWorker
 
   void endRemoveMarkers(frDesign* design);
   void endAddMarkers(frDesign* design);
+
+  // OrderNet
+public:
+  OrderNet * orderNet_;
+
 };
 
 }  // namespace fr
