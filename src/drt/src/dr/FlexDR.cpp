@@ -1586,7 +1586,7 @@ void FlexDR::searchRepair(int iter,
 
               orderNet_->SendReward(
                 iter,
-                i == (int) workersInBatch.size() - 1,
+                false,
                 getDesign()->getTopBlock()->getNumMarkers(),
                 totWlen / getDesign()->getTopBlock()->getDBUPerUU()
               );
@@ -1686,6 +1686,10 @@ void FlexDR::end(bool writeMetrics)
   const ULL totSCut = std::accumulate(sCut.begin(), sCut.end(), ULL(0));
   const ULL totMCut = std::accumulate(mCut.begin(), mCut.end(), ULL(0));
 
+  orderNet_->SendReward(0,
+                        true,
+                        getDesign()->getTopBlock()->getNumMarkers(),
+                        totWlen / getDesign()->getTopBlock()->getDBUPerUU());
 
   if (writeMetrics) {
     logger_->metric("drt::wire length::total",
