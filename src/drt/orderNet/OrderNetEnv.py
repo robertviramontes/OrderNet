@@ -270,6 +270,9 @@ def get_observation(
 
     data = message["data"]
 
+    if data["nets"] is None:
+        return (np.zeros(obs_space_shape, dtype=np.uint8), {}, [])
+
     routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
     routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
 
@@ -360,7 +363,7 @@ def create_pin_maps(
 
     if x_padding_required < 0 or y_padding_required < 0:
         print("WARNING: EXCEDED BOX SIZE")
-        return np.zeros(obs_space_shape, dtype=np.uint8)
+        return (np.zeros(obs_space_shape, dtype=np.uint8), {})
 
     (x_pad_left, x_pad_right) = padding_helper(x_padding_required)
     (y_pad_top, y_pad_bottom) = padding_helper(y_padding_required)
