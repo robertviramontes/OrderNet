@@ -191,120 +191,15 @@ class OrderNetEnv(Env):
 
         return (data["numViolations"], data["wireLength"])
 
-    def _in_routebox(self, pin: Point, routeBoxMin: Point, routeBoxMax: Point) -> bool:
-        in_routebox = True
-        in_routebox &= pin.x >= routeBoxMin.x
-        in_routebox &= pin.x <= routeBoxMax.x
-        in_routebox &= pin.y >= routeBoxMin.y
-        in_routebox &= pin.y <= routeBoxMax.y
-
-        return in_routebox
-
     def _get_observation(self, message: Dict) -> GymObs:
 
-        if not "inferenceData" in message["type"]:
-            raise TypeError("Expected inference data type message.")
-
-        data = message["data"]
-
-        routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
-        routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
-
-        routeBoxXRange = abs(routeBoxMax.x - routeBoxMin.x) + 1
-        routeBoxYRange = abs(routeBoxMax.y - routeBoxMin.y) + 1
-
-        with_pins = list(filter(lambda net: "pins" in net, data["nets"]))
-        # TODO in this, we assume pins are the most important feature.
-        # hence, we can just (randomly shuffle?) the nets without pins
-        without_pins = list(filter(lambda net: "pins" not in net, data["nets"]))
-        with_pins_in_routebox = []
-
-        # filter to only get pins in the range of our routebox!
-        for i, net in enumerate(with_pins):
-            if i >= 15:
-                # can only order 15 nets
-                break
-            pins = []
-            for pin in net["pins"]:
-                if self._in_routebox(
-                    Point(pin["l"]["x"], pin["l"]["y"]), routeBoxMin, routeBoxMax
-                ) and self._in_routebox(
-                    Point(pin["h"]["x"], pin["h"]["y"]), routeBoxMin, routeBoxMax
-                ):
-                    pins.append(pin)
-            if len(pins) > 0:
-                update_net = {}
-                update_net["name"] = net["name"]
-                update_net["pins"] = pins
-                with_pins_in_routebox.append(update_net)
-
-        self._net_numbering = {}
-        pin_map = self._create_pin_maps(
-            with_pins_in_routebox, routeBoxXRange, routeBoxYRange, routeBoxMin
+        (pin_map, net_numbering, nets_to_order) = get_observation(
+            message, self._obs_space_shape, self._num_layers
         )
 
-        self._nets_to_order = data["nets"]
-
+        self._net_numbering = net_numbering
+        self._nets_to_order = nets_to_order
         return pin_map
-
-    def _create_pin_maps(
-        self,
-        nets: List,
-        routeBoxXRange: int,
-        routeBoxYRange: int,
-        routeBoxMin: Point,
-    ) -> np.array:
-        pin_array = np.zeros(
-            (self._num_layers, routeBoxYRange, routeBoxXRange),
-            dtype=np.uint8,
-        )
-        for i, net in enumerate(nets):
-            self._net_numbering[i] = net["name"]
-            for pin in net["pins"]:
-                z = pin["h"]["z"]
-                low = Point(
-                    pin["l"]["x"] - routeBoxMin.x, pin["l"]["y"] - routeBoxMin.y
-                )
-                high = Point(
-                    pin["h"]["x"] - routeBoxMin.x, pin["h"]["y"] - routeBoxMin.y
-                )
-
-                minX = min(high.x, low.x)
-                minY = min(high.y, low.y)
-
-                # fill the entire range of the pins access box
-                for tx in range(abs(high.x - low.x) + 1):
-                    for ty in range(abs(high.y - low.y) + 1):
-                        pin_array[z][minY + ty][minX + tx] = (i + 1) * 10
-
-        # pad the pin array to the size of the observation
-        x_padding_required = self._obs_space_shape[2] - routeBoxXRange
-        y_padding_required = self._obs_space_shape[1] - routeBoxYRange
-
-        # get the pin padding
-        def padding_helper(padding_required) -> Tuple:
-            if padding_required % 2 == 0:
-                pad_a = int(padding_required / 2)
-                pad_b = int(padding_required / 2)
-            else:
-                pad_a = math.floor(padding_required / 2)
-                pad_b = math.ceil(padding_required / 2)
-
-            return (pad_a, pad_b)
-
-        if x_padding_required < 0 or y_padding_required < 0:
-            print("WARNING: EXCEDED BOX SIZE")
-            return np.zeros(self._obs_space_shape, dtype=np.uint8)
-
-        (x_pad_left, x_pad_right) = padding_helper(x_padding_required)
-        (y_pad_top, y_pad_bottom) = padding_helper(y_padding_required)
-        pin_array_padded = np.pad(
-            pin_array,
-            [(0, 0), (y_pad_top, y_pad_bottom), (x_pad_left, x_pad_right)],
-            mode="constant",
-            constant_values=[(0, 0), (0, 0), (0, 0)],
-        )
-        return pin_array_padded
 
     def _send_ordering(self, action):
         """Sends the net ordering indicated in action to the router."""
@@ -382,3 +277,126 @@ class OrderNetEnv(Env):
         for i in range(t):
             self._socket.recv()
             self._socket.send_string("ack")
+
+
+def in_routebox(pin: Point, routeBoxMin: Point, routeBoxMax: Point) -> bool:
+    in_routebox = True
+    in_routebox &= pin.x >= routeBoxMin.x
+    in_routebox &= pin.x <= routeBoxMax.x
+    in_routebox &= pin.y >= routeBoxMin.y
+    in_routebox &= pin.y <= routeBoxMax.y
+
+    return in_routebox
+
+
+def get_observation(
+    message: Dict, obs_space_shape: Tuple[int, int, int], num_layers: int
+) -> Tuple[GymObs, Dict, List]:
+    """Takes in the entire message, the observation space shape, the number of layers and returns the pin_map, nete_numbering, and nets_to_order."""
+
+    if not "inferenceData" in message["type"]:
+        raise TypeError("Expected inference data type message.")
+
+    data = message["data"]
+
+    routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
+    routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
+
+    routeBoxXRange = abs(routeBoxMax.x - routeBoxMin.x) + 1
+    routeBoxYRange = abs(routeBoxMax.y - routeBoxMin.y) + 1
+
+    with_pins = list(filter(lambda net: "pins" in net, data["nets"]))
+    # TODO in this, we assume pins are the most important feature.
+    # hence, we can just (randomly shuffle?) the nets without pins
+    without_pins = list(filter(lambda net: "pins" not in net, data["nets"]))
+    with_pins_in_routebox = []
+
+    # filter to only get pins in the range of our routebox!
+    for i, net in enumerate(with_pins):
+        if i >= 15:
+            # can only order 15 nets
+            break
+        pins = []
+        for pin in net["pins"]:
+            if in_routebox(
+                Point(pin["l"]["x"], pin["l"]["y"]), routeBoxMin, routeBoxMax
+            ) and in_routebox(
+                Point(pin["h"]["x"], pin["h"]["y"]), routeBoxMin, routeBoxMax
+            ):
+                pins.append(pin)
+        if len(pins) > 0:
+            update_net = {}
+            update_net["name"] = net["name"]
+            update_net["pins"] = pins
+            with_pins_in_routebox.append(update_net)
+
+    (pin_map, net_numbering) = create_pin_maps(
+        with_pins_in_routebox,
+        routeBoxXRange,
+        routeBoxYRange,
+        routeBoxMin,
+        obs_space_shape,
+        num_layers,
+    )
+
+    nets_to_order = data["nets"]
+
+    return (pin_map, net_numbering, nets_to_order)
+
+
+def create_pin_maps(
+    nets: List,
+    routeBoxXRange: int,
+    routeBoxYRange: int,
+    routeBoxMin: Point,
+    obs_space_shape: Tuple[int, int, int],
+    num_layers: int,
+) -> Tuple[np.array, Dict]:
+    pin_array = np.zeros(
+        (num_layers, routeBoxYRange, routeBoxXRange),
+        dtype=np.uint8,
+    )
+    net_numbering = {}
+    for i, net in enumerate(nets):
+        net_numbering[i] = net["name"]
+        for pin in net["pins"]:
+            z = pin["h"]["z"]
+            low = Point(pin["l"]["x"] - routeBoxMin.x, pin["l"]["y"] - routeBoxMin.y)
+            high = Point(pin["h"]["x"] - routeBoxMin.x, pin["h"]["y"] - routeBoxMin.y)
+
+            minX = min(high.x, low.x)
+            minY = min(high.y, low.y)
+
+            # fill the entire range of the pins access box
+            for tx in range(abs(high.x - low.x) + 1):
+                for ty in range(abs(high.y - low.y) + 1):
+                    pin_array[z][minY + ty][minX + tx] = (i + 1) * 10
+
+    # pad the pin array to the size of the observation
+    x_padding_required = obs_space_shape[2] - routeBoxXRange
+    y_padding_required = obs_space_shape[1] - routeBoxYRange
+
+    # get the pin padding
+    def padding_helper(padding_required) -> Tuple:
+        if padding_required % 2 == 0:
+            pad_a = int(padding_required / 2)
+            pad_b = int(padding_required / 2)
+        else:
+            pad_a = math.floor(padding_required / 2)
+            pad_b = math.ceil(padding_required / 2)
+
+        return (pad_a, pad_b)
+
+    if x_padding_required < 0 or y_padding_required < 0:
+        print("WARNING: EXCEDED BOX SIZE")
+        return np.zeros(obs_space_shape, dtype=np.uint8)
+
+    (x_pad_left, x_pad_right) = padding_helper(x_padding_required)
+    (y_pad_top, y_pad_bottom) = padding_helper(y_padding_required)
+    pin_array_padded = np.pad(
+        pin_array,
+        [(0, 0), (y_pad_top, y_pad_bottom), (x_pad_left, x_pad_right)],
+        mode="constant",
+        constant_values=[(0, 0), (0, 0), (0, 0)],
+    )
+    return (pin_array_padded, net_numbering)
