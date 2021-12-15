@@ -204,36 +204,7 @@ class OrderNetEnv(Env):
     def _send_ordering(self, action):
         """Sends the net ordering indicated in action to the router."""
 
-        action_copy = action
-        np.ndarray.sort(action)
-        action = np.flip(action)
-
-        # order the nets from the network feedback
-        nets_ordered = 0
-        order = {}
-        seen_sorted_vals = []
-        for sorted_val in action:
-            if sorted_val in seen_sorted_vals:
-                continue
-            else:
-                seen_sorted_vals.append(sorted_val)
-
-            match_indices = np.where(action_copy == sorted_val)
-            for i in match_indices[0]:
-                if i < len(self._net_numbering):
-                    order[self._net_numbering[i]] = nets_ordered
-                    nets_ordered += 1
-
-        net_not_yet_ordered = []
-        for net in self._nets_to_order:
-            if net["name"] not in order:
-                net_not_yet_ordered.append(net["name"])
-
-        random.shuffle(net_not_yet_ordered)
-
-        for net in net_not_yet_ordered:
-            order[net] = nets_ordered
-            nets_ordered += 1
+        order = parse_ordering(action, self._net_numbering, self._nets_to_order)
 
         # send the net ordering back to the responder
         self._socket.send_json(order)
@@ -400,3 +371,40 @@ def create_pin_maps(
         constant_values=[(0, 0), (0, 0), (0, 0)],
     )
     return (pin_array_padded, net_numbering)
+
+def parse_ordering(action, net_numbering, nets_to_order) -> Dict:
+    """Sends the net ordering indicated in action to the router."""
+
+    action_copy = action
+    np.ndarray.sort(action)
+    action = np.flip(action)
+
+    # order the nets from the network feedback
+    nets_ordered = 0
+    order = {}
+    seen_sorted_vals = []
+    for sorted_val in action:
+        if sorted_val in seen_sorted_vals:
+            continue
+        else:
+            seen_sorted_vals.append(sorted_val)
+
+        match_indices = np.where(action_copy == sorted_val)
+        for i in match_indices[0]:
+            if i < len(net_numbering):
+                order[net_numbering[i]] = nets_ordered
+                nets_ordered += 1
+
+    net_not_yet_ordered = []
+    for net in nets_to_order:
+        if net["name"] not in order:
+            net_not_yet_ordered.append(net["name"])
+
+    random.shuffle(net_not_yet_ordered)
+
+    for net in net_not_yet_ordered:
+        order[net] = nets_ordered
+        nets_ordered += 1
+
+    # send the net ordering back to the responder
+    return order
