@@ -53,14 +53,15 @@ OrderNet::~OrderNet() {
 
   // Tell listeners we are done.
   sender_.connect ("tcp://localhost:5555");
-  zmq::message_t request (4);
-  memcpy (request.data (), "done", 4);
-  sender_.send (request, zmq::send_flags::none);
+  json jFinish;
+  jFinish["type"] = "done";
+  sendJson(jFinish);
   sender_.disconnect("tcp://localhost:5555");
 
 }
 
 void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets, bool willSort) {
+  std::cout << "Train" <<std::endl;
   Rect routeBox;
 
   auto gridGraph = worker->getGridGraph();
@@ -167,6 +168,7 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message
 }
 
 void OrderNet::SendReward(int drIter, bool lastInIteration, int numViolations, unsigned long long wireLength) {
+  std::cout << "Send Reward" << std::endl;
   sender_.connect ("tcp://localhost:5555");
 
   json jRewards;
