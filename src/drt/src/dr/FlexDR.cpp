@@ -2037,18 +2037,14 @@ int FlexDR::main()
   int iterNum = 0;
   searchRepair(
       iterNum++ /*  0 */, 7, 0, 3, ROUTESHAPECOST, 0 /*MAARKERCOST*/, 1, true);
-  while (iterNum < 30)
-  {
-    searchRepair(iterNum++ /*  1 */,
-                7,
-                -2,
-                3,
-                ROUTESHAPECOST,
-                ROUTESHAPECOST /*MAARKERCOST*/,
-                1,
-                true);
-  }
-  goto skipSR;
+  searchRepair(iterNum++ /*  1 */,
+              7,
+              -2,
+              3,
+              ROUTESHAPECOST,
+              ROUTESHAPECOST /*MAARKERCOST*/,
+              1,
+              true);
   searchRepair(iterNum++ /*  2 */,
                7,
                -5,
