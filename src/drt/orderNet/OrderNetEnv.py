@@ -68,11 +68,12 @@ class OrderNetEnv(Env):
         self._wirelength = 0
 
         self._num_resets = -1  # Becomes 0 after __init__ exits.
+        self._num_steps = 0
         self.reset()
 
     def step(self, action) -> GymStepReturn:
         # The `step()` method must return four values: obs, reward, done, info
-
+        self._num_steps += 1
         # First, write the net ordering to TritonRoute from the action
         self._socket.recv_json()
         self._send_ordering(action)
@@ -92,9 +93,20 @@ class OrderNetEnv(Env):
             else (self._wirelength - wirelength) / self._wirelength
         )
 
+        # update the wirelength and drc so we can look at the improvement in the next iteration
+        self._violations = violations
+        self._wirelength = wirelength
+
         # reward is the sum of the violation and wirelength improvemnets
-        reward = violation_improvement + wirelength_improvement
+        violation_weight = 0.5
+        wirelength_weight = 1 - violation_weight
+        reward = (
+            violation_weight * violation_improvement
+            + wirelength_weight * wirelength_improvement
+        )
         done = violations == 0
+        if reward > 0:
+            print("violation improvement: " + str(violation_improvement))
 
         # finally, get the observation for the next set of nets to order
         # this updated observation of the state gets returned from the step
@@ -110,9 +122,22 @@ class OrderNetEnv(Env):
             # if we keep getting rewards, indicates we're skipping the searchRepair
             # process because there are no more violations.
             obs = np.zeros(self._obs_space_shape)
-            done = True
-        else:
+            while message["type"] == "reward":
+                message = self._socket.recv_json()
+                self._socket.send_string("ack")
+
+                if message["type"] == "done":
+                    done = True
+                    break; 
+
+        
+        if message["type"] == "inferenceData":
             obs = self._get_observation(message)
+        elif not done:
+            raise TypeError("Should have gotten inference data at this point!")
+
+        if done:
+            print("Done at step number: " + str(self._num_steps))
 
         return obs, reward, done, {}
 
@@ -120,13 +145,14 @@ class OrderNetEnv(Env):
         print("resetting")
         self._num_resets += 1
         self._net_numbering = {}
+        self._num_steps = 0
 
         self._cleanup_dangling_process()
 
         # Start the router and get the information from the first run
         # which should generate the initial violations we look to fix
         self._router_process = subprocess.Popen(
-            [self._executable_path, self._script_path], stdout=subprocess.PIPE
+            [self._executable_path, self._script_path] #, stdout=subprocess.PIPE
         )
 
         # get metrics about the workers in this design
@@ -374,6 +400,7 @@ def create_pin_maps(
         constant_values=[(0, 0), (0, 0), (0, 0)],
     )
     return (pin_array_padded, net_numbering)
+
 
 def parse_ordering(action, net_numbering, nets_to_order) -> Dict:
     """Sends the net ordering indicated in action to the router."""
