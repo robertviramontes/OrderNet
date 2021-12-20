@@ -295,9 +295,11 @@ def get_observation(
         raise TypeError("Expected inference data type message.")
 
     data = message["data"]
+    
+    nets_to_order = data["nets"] if data["nets"] is not None else []
 
-    if data["nets"] is None:
-        return (np.zeros(obs_space_shape, dtype=np.uint8), {}, [])
+    if data["nets"] is None or data["routeBoxes"] is None:
+        return (np.zeros(obs_space_shape, dtype=np.uint8), {}, nets_to_order)
 
     routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
     routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
@@ -338,8 +340,6 @@ def get_observation(
         obs_space_shape,
         num_layers,
     )
-
-    nets_to_order = data["nets"]
 
     return (pin_map, net_numbering, nets_to_order)
 

@@ -6,6 +6,7 @@ import subprocess
 import zmq
 from typing import Dict
 from OrderNetEnv import get_observation, parse_ordering
+import sys
 
 
 def parseInfData(message: Dict, model: BaseAlgorithm):
@@ -30,8 +31,12 @@ build_dir = os.path.join(os.path.join("/workspaces", "OrderNet"), "build")
 executable_name = str(os.path.join(build_dir, os.path.join("src", "openroad")))
 script_path = "/home/share/ispd_test1.tcl"
 
+if len(sys.argv) > 1:
+    saved_model_name = str(sys.argv[1])
+else:
+    saved_model_name = "cnn_test1_2500steps_noSkipSr.zip"
 
-save_path = os.path.join("/home", "share", "cnn_test1_2500steps.zip")
+save_path = os.path.join("/home", "share", saved_model_name)
 
 model = A2C.load(save_path)
 
@@ -54,6 +59,8 @@ while not_done:
         elif "inferenceData" in message["type"]:
             socket.send_string("ack")
             parseInfData(message, model)
+        elif "done" in message["type"]:
+            not_done = False
         else:
             raise TypeError("Unknown message type.")
     else:
