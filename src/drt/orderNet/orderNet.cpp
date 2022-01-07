@@ -51,16 +51,19 @@ OrderNet::~OrderNet() {
     Py_DECREF(pInstance_);
   }
 
+  std::cout << "Done" << std::endl;
+
   // Tell listeners we are done.
   sender_.connect ("tcp://localhost:5555");
-  zmq::message_t request (4);
-  memcpy (request.data (), "done", 4);
-  sender_.send (request, zmq::send_flags::none);
+  json jFinish;
+  jFinish["type"] = "done";
+  sendJson(jFinish);
   sender_.disconnect("tcp://localhost:5555");
 
 }
 
 void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets, bool willSort) {
+  std::cout << "Train" <<std::endl;
   Rect routeBox;
 
   auto gridGraph = worker->getGridGraph();
@@ -146,6 +149,7 @@ void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNet
     jRequestSort["type"] = "requestSort";
     sendJson(jRequestSort);
     sender_.recv(reply, zmq::recv_flags::none);
+
     sortFromResponse(ripupNets, reply);
   }
 
@@ -159,7 +163,14 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message
   auto responseComp = [response](fr::drNet* const& a, fr::drNet* const& b) {
     // Sort based on the ordering in the response from the model
     // Return true if A is before B, hence list order should be ascending
-    return response[a->getFrNet()->getName()] <  response[b->getFrNet()->getName()];
+    auto a_order = response[a->getFrNet()->getName()];
+    auto b_order = response[b->getFrNet()->getName()];
+    if (a_order != b_order) {
+      return a_order < b_order;
+    } else {
+      // If they get the same score, break the tie by net name.
+      return a->getFrNet()->getName() < b->getFrNet()->getName();
+    }
   };
   
   // Actually sort the nets
@@ -167,6 +178,7 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message
 }
 
 void OrderNet::SendReward(int drIter, bool lastInIteration, int numViolations, unsigned long long wireLength) {
+  std::cout << "Send Reward" << std::endl;
   sender_.connect ("tcp://localhost:5555");
 
   json jRewards;
