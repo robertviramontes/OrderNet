@@ -68,7 +68,7 @@ class ScriptWidget : public QDockWidget
 
   void setLogger(utl::Logger* logger);
 
-  void setupTcl(Tcl_Interp* interp, bool do_init_openroad);
+  void setupTcl(Tcl_Interp* interp, bool do_init_openroad, const std::function<void(void)>& post_or_init);
 
   void setFont(const QFont& font);
 
@@ -81,6 +81,8 @@ class ScriptWidget : public QDockWidget
   // tcl exit has been initiated, want the gui to handle
   // shutdown
   void tclExiting();
+
+  void addToOutput(const QString& text, const QColor& color);
 
  public slots:
  // Triggered when the user hits return in the line edit
@@ -102,6 +104,8 @@ class ScriptWidget : public QDockWidget
 
   void updatePauseTimeout();
 
+  void addTextToOutput(const QString& text, const QColor& color);
+
  protected:
   // required to ensure input command space it set to correct height
   void resizeEvent(QResizeEvent* event) override;
@@ -111,7 +115,6 @@ class ScriptWidget : public QDockWidget
 
   void triggerPauseCountDown(int timeout);
 
-  void addToOutput(const QString& text, const QColor& color);
   void addCommandToOutput(const QString& cmd);
   void addTclResultToOutput(int return_code);
   void addReportToOutput(const QString& text);

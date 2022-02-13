@@ -57,12 +57,18 @@ class TimingWidget : public QDockWidget
   void init(sta::dbSta* sta);
 
   TimingPathRenderer* getTimingRenderer() { return path_renderer_.get(); }
+  TimingConeRenderer* getConeRenderer() { return cone_renderer_.get(); }
 
   void readSettings(QSettings* settings);
   void writeSettings(QSettings* settings);
 
+  TimingControlsDialog* getSettings() { return settings_; }
+
+  void updatePaths();
+
  signals:
   void highlightTimingPath(TimingPath* timing_path);
+  void inspect(const Selected& selection);
 
  public slots:
   void showPathDetails(const QModelIndex& index);
@@ -88,6 +94,8 @@ class TimingWidget : public QDockWidget
 
   void updateClockRows();
 
+  void showSettings();
+
  protected:
   void keyPressEvent(QKeyEvent* key_event) override;
   void showEvent(QShowEvent* event) override;
@@ -103,15 +111,18 @@ class TimingWidget : public QDockWidget
 
   QLineEdit* find_object_edit_;
   QSpinBox* path_index_spin_box_;
-  QSpinBox* path_count_spin_box_;
   QPushButton* update_button_;
+  QPushButton* settings_button_;
   QCheckBox* expand_clk_;
+
+  TimingControlsDialog* settings_;
 
   TimingPathsModel* setup_timing_paths_model_;
   TimingPathsModel* hold_timing_paths_model_;
   TimingPathDetailModel* path_details_model_;
   TimingPathDetailModel* capture_details_model_;
   std::unique_ptr<TimingPathRenderer> path_renderer_;
+  std::unique_ptr<TimingConeRenderer> cone_renderer_;
   GuiDBChangeListener* dbchange_listener_;
   QTabWidget* delay_widget_;
   QTabWidget* detail_widget_;

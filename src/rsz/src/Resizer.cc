@@ -37,7 +37,6 @@
 
 #include "rsz/SteinerTree.hh"
 
-#include "ord/OpenRoad.hh"
 #include "gui/gui.h"
 #include "utl/Logger.h"
 
@@ -86,7 +85,6 @@ using std::pair;
 using std::sqrt;
 
 using utl::RSZ;
-using ord::closestPtInRect;
 
 using odb::dbInst;
 using odb::dbPlacementStatus;
@@ -365,23 +363,28 @@ Resizer::removeBuffer(Instance *buffer)
     removed = out_net;
   }
 
-  sta_->disconnectPin(in_pin);
-  sta_->disconnectPin(out_pin);
-  sta_->deleteInstance(buffer);
+  if (!sdc_->isConstrained(in_pin)
+      && !sdc_->isConstrained(out_pin)
+      && !sdc_->isConstrained(removed)
+      && !sdc_->isConstrained(buffer)) {
+    sta_->disconnectPin(in_pin);
+    sta_->disconnectPin(out_pin);
+    sta_->deleteInstance(buffer);
 
-  NetPinIterator *pin_iter = db_network_->pinIterator(removed);
-  while (pin_iter->hasNext()) {
-    Pin *pin = pin_iter->next();
-    Instance *pin_inst = db_network_->instance(pin);
-    if (pin_inst != buffer) {
-      Port *pin_port = db_network_->port(pin);
-      sta_->disconnectPin(pin);
-      sta_->connectPin(pin_inst, pin_port, survivor);
+    NetPinIterator *pin_iter = db_network_->pinIterator(removed);
+    while (pin_iter->hasNext()) {
+      Pin *pin = pin_iter->next();
+      Instance *pin_inst = db_network_->instance(pin);
+      if (pin_inst != buffer) {
+        Port *pin_port = db_network_->port(pin);
+        sta_->disconnectPin(pin);
+        sta_->connectPin(pin_inst, pin_port, survivor);
+      }
     }
+    delete pin_iter;
+    sta_->deleteNet(removed);
+    parasitics_invalid_.erase(removed);
   }
-  delete pin_iter;
-  sta_->deleteNet(removed);
-  parasitics_invalid_.erase(removed);
 }
 
 void
@@ -504,13 +507,13 @@ Resizer::bufferInput(const Pin *top_pin,
   string buffer_name = makeUniqueInstName("input");
   Instance *parent = db_network_->topInstance();
   Net *buffer_out = makeUniqueNet();
-  Instance *buffer = db_network_->makeInstance(buffer_cell,
-                                               buffer_name.c_str(),
-                                               parent);
+  Instance *buffer = makeInstance(buffer_cell,
+                                  buffer_name.c_str(),
+                                  parent);
   if (buffer) {
     journalMakeBuffer(buffer);
     Point pin_loc = db_network_->location(top_pin);
-    Point buf_loc = core_exists_ ? closestPtInRect(core_, pin_loc) : pin_loc;
+    Point buf_loc = core_exists_ ? core_.closestPtInside(pin_loc) : pin_loc;
     setLocation(buffer, buf_loc);
     designAreaIncr(area(db_network_->cell(buffer_cell)));
     inserted_buffer_count_++;
@@ -539,18 +542,13 @@ void
 Resizer::setLocation(Instance *inst,
                      Point pt)
 {
-  int x = pt.getX();
-  int y = pt.getY();
   // Stay inside the lines.
-  if (core_exists_) {
-    Point in_core = closestPtInRect(core_, x, y);
-    x = in_core.getX();
-    y = in_core.getY();
-  }
+  if (core_exists_)
+    pt = core_.closestPtInside(pt);
 
   dbInst *dinst = db_network_->staToDb(inst);
   dinst->setPlacementStatus(dbPlacementStatus::PLACED);
-  dinst->setLocation(x, y);
+  dinst->setLocation(pt.getX(), pt.getY());
 }
 
 void
@@ -617,9 +615,9 @@ Resizer::bufferOutput(Pin *top_pin,
   string buffer_name = makeUniqueInstName("output");
   Instance *parent = network->topInstance();
   Net *buffer_in = makeUniqueNet();
-  Instance *buffer = network->makeInstance(buffer_cell,
-                                           buffer_name.c_str(),
-                                           parent);
+  Instance *buffer = makeInstance(buffer_cell,
+                                  buffer_name.c_str(),
+                                  parent);
   if (buffer) {
     journalMakeBuffer(buffer);
     setLocation(buffer, db_network_->location(top_pin));
@@ -1325,15 +1323,22 @@ Resizer::repairNet(SteinerTree *tree,
            || load_slew > max_load_slew) {
       // Make the wire a bit shorter than necessary to allow for
       // offset from instance origin to pin and detailed placement movement.
-      double length_margin = .05;
-      int stub_length = std::numeric_limits<int>::max();
-      if (max_length > 0 && wire_length > max_length)
-        stub_length = min(stub_length, max_length);
+      static double length_margin = .05;
+      bool split_wire = false;
+      int split_length = std::numeric_limits<int>::max();
+      if (max_length > 0 && wire_length > max_length) {
+        split_length = min(split_length, max_length);
+        split_wire = true;
+      }
       if (wire_cap > 0.0
           && pin_cap < max_cap
-          && load_cap > max_cap)
-        stub_length = min(stub_length, metersToDbu((max_cap - pin_cap) / wire_cap));
-      if (load_slew > max_load_slew) {
+          && load_cap > max_cap) {
+        split_length = min(split_length, metersToDbu((max_cap - pin_cap) / wire_cap));
+        split_wire = true;
+      }
+      if (load_slew > max_load_slew
+          // Check that zero length wire meets max slew.
+          && r_drvr*pin_cap*k_threshold < max_load_slew) {
         // Using elmore delay to approximate wire
         // load_slew = (Rdrvr + L*Rwire) * (L*Cwire + Cpin) * k_threshold
         // Setting this to max_slew is a quadratic in L
@@ -1343,34 +1348,40 @@ Resizer::repairNet(SteinerTree *tree,
         float b = r_drvr * wire_cap + wire_res * pin_cap;
         float c = r_drvr * pin_cap - max_load_slew / k_threshold;
         float l = (-b + sqrt(b*b - 4 * a * c)) / (2 * a);
-        stub_length = min(stub_length, metersToDbu(l));
+        if (l > 0.0) {
+          split_length = min(split_length, metersToDbu(l));
+          split_wire = true;
+        }
       }
+      if (split_wire) {
+        // Distance from pt to repeater backward toward prev_pt.
+        double buf_dist = length - (wire_length - split_length * (1.0 - length_margin));
+        double dx = prev_x - pt_x;
+        double dy = prev_y - pt_y;
+        double d = (length == 0) ? 0.0 : buf_dist / length;
+        int buf_x = pt_x + d * dx;
+        int buf_y = pt_y + d * dy;
+        makeRepeater("wire", buf_x, buf_y, buffer_lowest_drive_, level,
+                     wire_length, pin_cap, fanout, load_pins);
+        // Update for the next round.
+        length -= buf_dist;
+        wire_length = length;
+        pt_x = buf_x;
+        pt_y = buf_y;
 
-      // Distance from pt to repeater backward toward prev_pt.
-      double buf_dist = length - (wire_length - stub_length * (1.0 - length_margin));
-      double dx = prev_x - pt_x;
-      double dy = prev_y - pt_y;
-      double d = (length == 0) ? 0.0 : buf_dist / length;
-      int buf_x = pt_x + d * dx;
-      int buf_y = pt_y + d * dy;
-      makeRepeater("wire", buf_x, buf_y, buffer_lowest_drive_, level,
-                   wire_length, pin_cap, fanout, load_pins);
-      // Update for the next round.
-      length -= buf_dist;
-      wire_length = length;
-      pt_x = buf_x;
-      pt_y = buf_y;
-
-      wire_length1 = dbuToMeters(wire_length);
-      load_cap = pin_cap + wire_length1 * wire_cap;
-      load_slew = (r_drvr + wire_length1 * wire_res) * load_cap * k_threshold;
-      debugPrint(logger_, RSZ, "repair_net", 3, "{:{}s}load_slew={}",
-                 "", level,
-                 delayAsString(load_slew, this, 3));
-      debugPrint(logger_, RSZ, "repair_net", 3, "{:{}s}wl={} l={}",
-                 "", level,
-                 units_->distanceUnit()->asString(dbuToMeters(wire_length), 1),
-                 units_->distanceUnit()->asString(dbuToMeters(length), 1));
+        wire_length1 = dbuToMeters(wire_length);
+        load_cap = pin_cap + wire_length1 * wire_cap;
+        load_slew = (r_drvr + wire_length1 * wire_res) * load_cap * k_threshold;
+        debugPrint(logger_, RSZ, "repair_net", 3, "{:{}s}load_slew={}",
+                   "", level,
+                   delayAsString(load_slew, this, 3));
+        debugPrint(logger_, RSZ, "repair_net", 3, "{:{}s}wl={} l={}",
+                   "", level,
+                   units_->distanceUnit()->asString(dbuToMeters(wire_length), 1),
+                   units_->distanceUnit()->asString(dbuToMeters(length), 1));
+      }
+      else
+        break;
     }
   }
 }
@@ -1482,9 +1493,9 @@ Resizer::makeRepeater(const char *where,
     }
   }
 
-  Instance *buffer = db_network_->makeInstance(buffer_cell,
-                                               buffer_name.c_str(),
-                                               parent);
+  Instance *buffer = makeInstance(buffer_cell,
+                                  buffer_name.c_str(),
+                                  parent);
   journalMakeBuffer(buffer);
   Point buf_loc(x, y);
   setLocation(buffer, buf_loc);
@@ -2213,8 +2224,8 @@ Resizer::repairTieFanout(LibertyPort *tie_port,
             Point tie_loc = tieLocation(load, separation_dbu);
             Instance *load_inst = network_->instance(load);
             string tie_name = makeUniqueInstName(inst_name, true);
-            Instance *tie = sta_->makeInstance(tie_name.c_str(),
-                                               tie_cell, top_inst);
+            Instance *tie = makeInstance(tie_cell, tie_name.c_str(),
+                                         top_inst);
             setLocation(tie, tie_loc);
 
             // Make tie output net.
@@ -2545,9 +2556,9 @@ Resizer::splitLoads(PathRef *drvr_path,
   string buffer_name = makeUniqueInstName("split");
   Instance *parent = db_network_->topInstance();
   LibertyCell *buffer_cell = buffer_lowest_drive_;
-  Instance *buffer = db_network_->makeInstance(buffer_cell,
-                                               buffer_name.c_str(),
-                                               parent);
+  Instance *buffer = makeInstance(buffer_cell,
+                                  buffer_name.c_str(),
+                                  parent);
   journalMakeBuffer(buffer);
   inserted_buffer_count_++;
   designAreaIncr(area(db_network_->cell(buffer_cell)));
@@ -3004,8 +3015,8 @@ Resizer::makeHoldDelay(Vertex *drvr,
     Net *buf_out_net = (i == buffer_count - 1) ? out_net : makeUniqueNet();
     // drvr_pin->drvr_net->hold_buffer->net2->load_pins
     string buffer_name = makeUniqueInstName("hold");
-    buffer = db_network_->makeInstance(buffer_cell, buffer_name.c_str(),
-                                       parent);
+    buffer = makeInstance(buffer_cell, buffer_name.c_str(),
+                          parent);
     journalMakeBuffer(buffer);
     inserted_buffer_count_++;
     designAreaIncr(area(db_network_->cell(buffer_cell)));
@@ -3128,7 +3139,7 @@ Resizer::findLongWires(VertexSeq &drvrs)
         drvr_dists.push_back(DrvrDist(vertex, maxLoadManhattenDistance(vertex)));
     }
   }
-  sort(drvr_dists, [this](const DrvrDist &drvr_dist1,
+  sort(drvr_dists, [](const DrvrDist &drvr_dist1,
                           const DrvrDist &drvr_dist2) {
                     return drvr_dist1.second > drvr_dist2.second;
                   });
@@ -3152,7 +3163,7 @@ Resizer::findLongWiresSteiner(VertexSeq &drvrs)
         drvr_dists.push_back(DrvrDist(vertex, findMaxSteinerDist(vertex)));
     }
   }
-  sort(drvr_dists, [this](const DrvrDist &drvr_dist1,
+  sort(drvr_dists, [](const DrvrDist &drvr_dist1,
                           const DrvrDist &drvr_dist2) {
                      return drvr_dist1.second > drvr_dist2.second;
                    });
@@ -3482,6 +3493,8 @@ Resizer::findMaxWireLength(LibertyPort *drvr_port,
                            const Corner *corner)
 {
   LibertyCell *cell = drvr_port->libertyCell();
+  if (db_network_->staToDb(cell) == nullptr)
+    logger_->error(RSZ, 70, "no LEF cell for {}.", cell->name());
   double drvr_r = drvr_port->driveResistance();
   // wire_length1 lower bound
   // wire_length2 upper bound
@@ -3707,7 +3720,7 @@ Resizer::designAreaIncr(float delta)
 void
 Resizer::ensureDesignArea()
 {
-  if (core_exists_) {
+  if (block_) {
     design_area_ = 0.0;
     for (dbInst *inst : block_->getInsts()) {
       dbMaster *master = inst->getMaster();
@@ -3811,8 +3824,8 @@ Resizer::cloneClkInverter(Instance *inv)
       Pin *load_pin = load_iter->next();
       if (load_pin != out_pin) {
         string clone_name = makeUniqueInstName(inv_name, true);
-        Instance *clone = sta_->makeInstance(clone_name.c_str(),
-                                             inv_cell, top_inst);
+        Instance *clone = makeInstance(inv_cell, clone_name.c_str(),
+                                       top_inst);
         Point clone_loc = db_network_->location(load_pin);
         journalMakeBuffer(clone);
         setLocation(clone, clone_loc);
@@ -3900,12 +3913,11 @@ Resizer::journalRestore()
 class SteinerRenderer : public gui::Renderer
 {
 public:
-  SteinerRenderer(Resizer *resizer);
+  SteinerRenderer();
   void highlight(SteinerTree *tree);
   virtual void drawObjects(gui::Painter& /* painter */) override;
 
 private:
-  Resizer *resizer_;
   SteinerTree *tree_;
 };
 
@@ -3914,7 +3926,7 @@ Resizer::highlightSteiner(const Pin *drvr)
 {
   if (gui::Gui::enabled()) {
     if (steiner_renderer_ == nullptr) {
-      steiner_renderer_ = new SteinerRenderer(this);
+      steiner_renderer_ = new SteinerRenderer();
       gui_->registerRenderer(steiner_renderer_);
     }
     SteinerTree *tree = nullptr;
@@ -3925,8 +3937,7 @@ Resizer::highlightSteiner(const Pin *drvr)
   }
 }
 
-SteinerRenderer::SteinerRenderer(Resizer *resizer) :
-  resizer_(resizer),
+SteinerRenderer::SteinerRenderer() :
   tree_(nullptr)
 {
 }
@@ -4083,6 +4094,16 @@ Resizer::isRegister(Vertex *vertex)
     return cell && cell->hasSequentials();
   }
   return false;
+}
+
+Instance *Resizer::makeInstance(LibertyCell *cell,
+                                const char *name,
+                                Instance *parent)
+{
+  Instance *inst = db_network_->makeInstance(cell, name, parent);
+  dbInst *db_inst = db_network_->staToDb(inst);
+  db_inst->setSourceType(odb::dbSourceType::TIMING);
+  return inst;
 }
 
 } // namespace

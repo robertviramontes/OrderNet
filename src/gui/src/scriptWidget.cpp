@@ -32,12 +32,14 @@
 
 #include "scriptWidget.h"
 
+#include <mutex>
 #include <errno.h>
 #include <unistd.h>
 
 #include <QCoreApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -89,6 +91,12 @@ ScriptWidget::ScriptWidget(QWidget* parent)
   connect(pauser_, SIGNAL(pressed()), this, SLOT(pauserClicked()));
   connect(pause_timer_.get(), SIGNAL(timeout()), this, SLOT(unpause()));
 
+  connect(this,
+          SIGNAL(addToOutput(const QString&, const QColor&)),
+          this,
+          SLOT(addTextToOutput(const QString&, const QColor&)),
+          Qt::QueuedConnection);
+
   setWidget(container);
 }
 
@@ -115,7 +123,7 @@ int ScriptWidget::tclExitHandler(ClientData instance_data,
   return TCL_OK;
 }
 
-void ScriptWidget::setupTcl(Tcl_Interp* interp, bool do_init_openroad)
+void ScriptWidget::setupTcl(Tcl_Interp* interp, bool do_init_openroad, const std::function<void(void)>& post_or_init)
 {
   interp_ = interp;
 
@@ -128,11 +136,13 @@ void ScriptWidget::setupTcl(Tcl_Interp* interp, bool do_init_openroad)
     pauser_->setText("Running");
     pauser_->setStyleSheet("background-color: red");
     int setup_tcl_result = ord::tclAppInit(interp_);
+    post_or_init();
     pauser_->setText("Idle");
     pauser_->setStyleSheet("");
 
     addTclResultToOutput(setup_tcl_result);
   } else {
+    post_or_init();
     Gui::get()->load_design();
   }
 
@@ -175,6 +185,12 @@ void ScriptWidget::executeCommand(const QString& command, bool echo)
 void ScriptWidget::executeSilentCommand(const QString& command)
 {
   int return_code = executeTclCommand(command);
+
+  if (return_code != TCL_OK) {
+    // Show its error output
+    addTclResultToOutput(return_code);
+  }
+
   emit commandExecuted(return_code);
 }
 
@@ -207,7 +223,15 @@ void ScriptWidget::addTclResultToOutput(int return_code)
   // Show the return value color-coded by ok/err.
   const char* result = Tcl_GetString(Tcl_GetObjResult(interp_));
   if (result[0] != '\0') {
-    addToOutput(result, (return_code == TCL_OK) ? tcl_ok_msg_ : tcl_error_msg_);
+    if (return_code == TCL_OK) {
+      addToOutput(result, tcl_ok_msg_);
+    } else {
+      try {
+        logger_->error(utl::GUI, 70, result);
+      } catch (const std::runtime_error& /* e */) {
+        // do nothing
+      }
+    }
   }
 }
 
@@ -221,7 +245,7 @@ void ScriptWidget::addReportToOutput(const QString& text)
   addToOutput(text, buffer_msg_);
 }
 
-void ScriptWidget::addToOutput(const QString& text, const QColor& color)
+void ScriptWidget::addTextToOutput(const QString& text, const QColor& color)
 {
   // make sure cursor is at the end of the document
   output_->moveCursor(QTextCursor::End);
@@ -401,18 +425,26 @@ class ScriptWidget::GuiSink : public spdlog::sinks::base_sink<Mutex>
   {
     // Convert the msg into a formatted string
     spdlog::memory_buf_t formatted;
+
+    mutex_.lock(); // formatter checks and caches some information
     this->formatter_->format(msg, formatted);
-    std::string formatted_msg = std::string(formatted.data(), formatted.size());
+    mutex_.unlock();
+    const QString formatted_msg = QString::fromStdString(std::string(formatted.data(), formatted.size()));
 
     if (msg.level == spdlog::level::level_enum::off) {
       // this comes from a ->report
-      widget_->addReportToOutput(formatted_msg.c_str());
+      widget_->addReportToOutput(formatted_msg);
     }
     else {
       // select error message color if message level is error or above.
       const QColor& msg_color = msg.level >= spdlog::level::level_enum::err ? widget_->tcl_error_msg_ : widget_->buffer_msg_;
 
-      widget_->addLogToOutput(formatted_msg.c_str(), msg_color);
+      widget_->addLogToOutput(formatted_msg, msg_color);
+    }
+
+    // process widget event queue, if main thread will process new text, otherwise there is nothing to process from this thread.
+    if (QThread::currentThread() == widget_->thread()) {
+      QCoreApplication::sendPostedEvents(widget_);
     }
   }
 
@@ -420,11 +452,14 @@ class ScriptWidget::GuiSink : public spdlog::sinks::base_sink<Mutex>
 
  private:
   ScriptWidget* widget_;
+  std::mutex mutex_;
 };
 
 void ScriptWidget::setLogger(utl::Logger* logger)
 {
-  sink_ = std::make_shared<GuiSink<std::mutex>>(this);
+  // use spdlog::details::null_mutex instead of std::mutex, Qt will handle the thread transfers to the output viewer
+  // null_mutex prevents deadlock (by not locking) when the logging causes a redraw, which then causes another logging event.
+  sink_ = std::make_shared<GuiSink<spdlog::details::null_mutex>>(this);
   logger_ = logger;
   logger->addSink(sink_);
 }
