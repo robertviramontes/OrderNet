@@ -63,7 +63,7 @@ OrderNet::~OrderNet() {
 }
 
 void OrderNet::Train(fr::FlexDRWorker *worker, std::vector<fr::drNet*>& ripupNets, bool willSort) {
-  std::cout << "Train" <<std::endl;
+  // std::cout << "Train" <<std::endl;
   Rect routeBox;
 
   auto gridGraph = worker->getGridGraph();
@@ -178,7 +178,7 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets, zmq::message
 }
 
 void OrderNet::SendReward(int drIter, bool lastInIteration, int numViolations, unsigned long long wireLength) {
-  std::cout << "Send Reward" << std::endl;
+  // std::cout << "Send Reward" << std::endl;
   sender_.connect ("tcp://localhost:5555");
 
   json jRewards;
