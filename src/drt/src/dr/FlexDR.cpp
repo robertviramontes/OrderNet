@@ -2625,7 +2625,6 @@ int FlexDR::main()
                MARKERCOST * 16,
                0,
                false);
-skipSR:
   if (DRC_RPT_FILE != string("")) {
     reportDRC(DRC_RPT_FILE);
   }
