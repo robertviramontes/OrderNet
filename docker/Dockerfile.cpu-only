@@ -1,0 +1,29 @@
+# Robert Viramontes
+
+FROM openroad/centos7-builder-gcc
+
+# Clean up build artifacts
+RUN rm -rf /OpenROAD
+
+
+RUN yum clean all; yum install -y epel-release zlib-evel libjpeg-devel
+
+RUN python3 -m pip install --upgrade pip
+RUN pip3 install torch==1.10.2+cpu torchvision==0.11.3+cpu torchaudio==0.10.2+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
+
+RUN pip3 install gym stable-baselines3
+
+RUN pip3 install pyzmq
+RUN yum install -y zeromq-devel
+
+RUN git clone https://github.com/zeromq/cppzmq.git
+RUN cd cppzmq && mkdir build && cd build
+RUN cmake /home/cppzmq/ && make -j4 install
+
+WORKDIR /home
+RUN git clone https://github.com/nlohmann/json.git && mkdir json/build
+WORKDIR /home/json/build
+RUN cmake /home/json && make -j4 install
+
+# optional, linting tools
+RUN python3 -m pip install mypy black
