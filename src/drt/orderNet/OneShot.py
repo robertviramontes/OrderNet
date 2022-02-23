@@ -4,8 +4,10 @@ from OrderNetEnv import OrderNetEnv
 from stable_baselines3 import A2C
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
+import argparse
 
 def one_shot(agent: A2C) -> A2C:
+    print("Starting one-shot routine!")
     reached_end_of_routing = False
 
     total_timesteps, callback = agent._setup_learn(
@@ -23,15 +25,20 @@ def one_shot(agent: A2C) -> A2C:
 
         # when does the router reach an end condition?
         # TEMP just test how this loop works
-        print("RV: " + str(agent._last_episode_starts))
         for s in agent._last_episode_starts:
             if s:
                 reached_end_of_routing = True
         if(reached_end_of_routing):
             print("Done with one-shot pass!")
-
-    return agent
     
+    print("End on-shot routine.")
+    return agent
+
+parser = argparse.ArgumentParser(description='One-shot solution for DRT with an agent that learns as we go.')
+parser.add_argument("ispd_name", default="test1",
+                    help="Name of the ispd benchmark (i.e. test1)")
+
+args = parser.parse_args()
 
 build_dir = os.path.join("/OrderNet", "build")
 
@@ -45,8 +52,8 @@ script_path = os.path.join("/ispd18", "ispd18.tcl")
 # TCL script requires knowing the ISPD source directory in env var ISPD_DIR
 # the name of the ISPD benchmark in env var ISPD_NAME (i.e. ispd18_test1)
 # and where to save the results in env var RESULT_DIR
-os.environ["ISPD_DIR"] = os.path.join("/ispd18/ispd18_sample2")
-os.environ["ISPD_NAME"] = "ispd18_sample2" 
+os.environ["ISPD_DIR"] = os.path.join("/ispd18/ispd18_" + args.ispd_name)
+os.environ["ISPD_NAME"] = "ispd18_" + args.ispd_name
 os.environ["RESULT_DIR"] = "results/test/"
 
 env = OrderNetEnv(str(executable_name), script_path)
