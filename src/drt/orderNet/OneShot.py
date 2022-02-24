@@ -10,11 +10,13 @@ def one_shot(agent: A2C) -> A2C:
     print("Starting one-shot routine!")
     reached_end_of_routing = False
 
+    # incurs an environment reset
     total_timesteps, callback = agent._setup_learn(
         total_timesteps=sys.maxsize,
         eval_env=None
     )
     while not reached_end_of_routing:
+        # incurs resets
         agent.collect_rollouts(
             agent.env, 
             callback,
