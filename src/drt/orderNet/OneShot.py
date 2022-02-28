@@ -59,27 +59,28 @@ script_path = os.path.join("/ispd18", "ispd18.tcl")
 # and where to save the results in env var RESULT_DIR
 os.environ["ISPD_DIR"] = os.path.join("/ispd18/ispd18_" + args.ispd_name)
 os.environ["ISPD_NAME"] = "ispd18_" + args.ispd_name
-os.environ["RESULT_DIR"] = "results/test/"
 
 env = OrderNetEnv(str(executable_name), script_path)
 # check_env(env)
 
-model = A2C("CnnPolicy", env)
+model = A2C("MlpPolicy", env)
 
 one_shot(model)
 
-pin_maps = env.collect_pin_maps
-for i, pin_map in enumerate(pin_maps):
-    if (i == 0):
-        collected_pin_maps = np.expand_dims(pin_map, axis=0)
-    else:
-        collected_pin_maps = np.append(
-            collected_pin_maps,
-            np.expand_dims(pin_map, axis=0),
-            axis=0
-        )
+save_pin_maps = False
+if save_pin_maps:
+    pin_maps = env.collect_pin_maps
+    for i, pin_map in enumerate(pin_maps):
+        if (i == 0):
+            collected_pin_maps = np.expand_dims(pin_map, axis=0)
+        else:
+            collected_pin_maps = np.append(
+                collected_pin_maps,
+                np.expand_dims(pin_map, axis=0),
+                axis=0
+            )
 
-np.save("pin_maps", collected_pin_maps)
+    np.save("pin_maps", collected_pin_maps)
 
 # save_path = os.path.join("/home", "share", "cnn_test1_2500steps.zip")
 # model.save(save_path)
