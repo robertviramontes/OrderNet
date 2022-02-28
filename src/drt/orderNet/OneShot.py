@@ -1,10 +1,13 @@
 import os
 import sys
+
+from matplotlib.pyplot import axes
 from OrderNetEnv import OrderNetEnv
 from stable_baselines3 import A2C
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
 import argparse
+import numpy as np
 
 def one_shot(agent: A2C) -> A2C:
     print("Starting one-shot routine!")
@@ -64,6 +67,19 @@ env = OrderNetEnv(str(executable_name), script_path)
 model = A2C("CnnPolicy", env)
 
 one_shot(model)
+
+pin_maps = env.collect_pin_maps
+for i, pin_map in enumerate(pin_maps):
+    if (i == 0):
+        collected_pin_maps = np.expand_dims(pin_map, axis=0)
+    else:
+        collected_pin_maps = np.append(
+            collected_pin_maps,
+            np.expand_dims(pin_map, axis=0),
+            axis=0
+        )
+
+np.save("pin_maps", collected_pin_maps)
 
 # save_path = os.path.join("/home", "share", "cnn_test1_2500steps.zip")
 # model.save(save_path)

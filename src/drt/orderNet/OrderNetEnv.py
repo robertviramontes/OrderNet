@@ -67,6 +67,8 @@ class OrderNetEnv(Env):
         self._violations = 0
         self._wirelength = 0
 
+        self.collect_pin_maps = []
+
         self._num_resets = -1  # Becomes 0 after __init__ exits.
         self._num_steps = 0
         self.reset()
@@ -222,6 +224,8 @@ class OrderNetEnv(Env):
         (pin_map, net_numbering, nets_to_order) = get_observation(
             message, self._obs_space_shape, self._num_layers
         )
+
+        self.collect_pin_maps.append(pin_map)
 
         self._net_numbering = net_numbering
         self._nets_to_order = nets_to_order
@@ -399,6 +403,7 @@ def create_pin_maps(
         mode="constant",
         constant_values=[(0, 0), (0, 0), (0, 0)],
     )
+    
     return (pin_array_padded, net_numbering)
 
 
