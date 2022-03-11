@@ -47,9 +47,8 @@
 #include "dst/Distributed.h"
 #include "frProfileTask.h"
 #include "gc/FlexGC.h"
-#include "serialization.h"
-
 #include "orderNet.hpp"
+#include "serialization.h"
 
 using namespace std;
 using namespace fr;
@@ -1802,30 +1801,30 @@ void FlexDR::searchRepair(int iter,
             workersInBatch[i]->main(getDesign());
 #pragma omp critical
           {
-            #if USE_ORDERNET
-              using ULL = unsigned long long;
-              vector<ULL> wlen(getTech()->getLayers().size(), 0);
-              Point bp, ep;
-              for (auto& net : getDesign()->getTopBlock()->getNets()) {
-                for (auto& shape : net->getShapes()) {
-                  if (shape->typeId() == frcPathSeg) {
-                    auto obj = static_cast<frPathSeg*>(shape.get());
-                    obj->getPoints(bp, ep);
-                    auto lNum = obj->getLayerNum();
-                    frCoord psLen = ep.x() - bp.x() + ep.y() - bp.y();
-                    wlen[lNum] += psLen;
-                  }
+#if USE_ORDERNET
+            using ULL = unsigned long long;
+            vector<ULL> wlen(getTech()->getLayers().size(), 0);
+            Point bp, ep;
+            for (auto& net : getDesign()->getTopBlock()->getNets()) {
+              for (auto& shape : net->getShapes()) {
+                if (shape->typeId() == frcPathSeg) {
+                  auto obj = static_cast<frPathSeg*>(shape.get());
+                  obj->getPoints(bp, ep);
+                  auto lNum = obj->getLayerNum();
+                  frCoord psLen = ep.x() - bp.x() + ep.y() - bp.y();
+                  wlen[lNum] += psLen;
                 }
               }
-              const ULL totWlen = std::accumulate(wlen.begin(), wlen.end(), ULL(0));
+            }
+            const ULL totWlen
+                = std::accumulate(wlen.begin(), wlen.end(), ULL(0));
 
-              orderNet_->SendReward(
+            orderNet_->SendReward(
                 iter,
                 false,
                 getDesign()->getTopBlock()->getNumMarkers(),
-                totWlen / getDesign()->getTopBlock()->getDBUPerUU()
-              );
-            #endif
+                totWlen / getDesign()->getTopBlock()->getDBUPerUU());
+#endif
             cnt++;
             if (VERBOSE > 0) {
               if (cnt * 1.0 / tot >= prev_perc / 100.0 + 0.1
@@ -2269,20 +2268,20 @@ int FlexDR::main()
     logger_->info(DRT, 194, "Start detail routing.");
   }
 
-  // Example loading the OrderNet interface class. 
+  // Example loading the OrderNet interface class.
   orderNet_ = make_unique<OrderNet>();
 
   int iterNum = 0;
   searchRepair(
       iterNum++ /*  0 */, 7, 0, 3, ROUTESHAPECOST, 0 /*MAARKERCOST*/, 1, true);
   searchRepair(iterNum++ /*  1 */,
-              7,
-              -2,
-              3,
-              ROUTESHAPECOST,
-              ROUTESHAPECOST /*MAARKERCOST*/,
-              1,
-              true);
+               7,
+               -2,
+               3,
+               ROUTESHAPECOST,
+               ROUTESHAPECOST /*MAARKERCOST*/,
+               1,
+               true);
   searchRepair(iterNum++ /*  2 */,
                7,
                -5,
@@ -2625,7 +2624,6 @@ int FlexDR::main()
                MARKERCOST * 16,
                0,
                false);
-skipSR:
   if (DRC_RPT_FILE != string("")) {
     reportDRC(DRC_RPT_FILE);
   }
