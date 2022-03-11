@@ -75,8 +75,7 @@ class OrderNetEnv(Env):
         # self.reset()
 
     def step(self, action) -> GymStepReturn:
-        if self.done:
-            print("TRYING TO STEP WHEN ALREADY DONE.")
+        done = False
 
         # The `step()` method must return four values: obs, reward, done, info
         self._num_steps += 1
@@ -110,7 +109,7 @@ class OrderNetEnv(Env):
             violation_weight * violation_improvement
             + wirelength_weight * wirelength_improvement
         )
-        done = violations == 0
+        # done = violations == 0
         if reward > 0:
             print("violation improvement: " + str(violation_improvement))
 
@@ -144,6 +143,12 @@ class OrderNetEnv(Env):
 
         if done:
             print("Done at step number: " + str(self._num_steps))
+            self.done = done
+            try:
+                outs, errs = self._router_process.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                self._router_process.kill()
+                outs, errs = self._router_process.communicate()
 
         return obs, reward, done, {}
 
@@ -165,7 +170,7 @@ class OrderNetEnv(Env):
         self._router_process = subprocess.Popen(
             [self._executable_path, "-exit", self._script_path] #, stdout=subprocess.PIPE
         )
-
+        
         # get metrics about the workers in this design
         message = self._socket.recv_json()
         self._get_first_observation(message)
