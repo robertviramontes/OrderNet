@@ -22,8 +22,14 @@ wirelength_pattern = re.compile(r"Total wire length = (\d+) um")
 drc_pattern = re.compile(r"\[INFO DRT-0199\]   Number of violations = (\d+).")
 
 log_data = [] # : List[IterationData] = []
-
+start_parsing = False
 for line in file_contents:
+    if "Starting one-shot routine!" in line:
+        start_parsing = True
+
+    if start_parsing == False:
+        continue
+    
     if "[INFO DRT-0198] Complete detail routing." in  line:
         break        
     m = optimization_pattern.search(line)
@@ -54,3 +60,4 @@ for d in log_data:
 
 df = pd.DataFrame(data = {'Iteration': itrs, 'DRC Violations': drcs, 'Wirelength': wls})
 print(df)
+df.to_csv("out.csv")
