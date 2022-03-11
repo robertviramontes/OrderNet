@@ -71,9 +71,13 @@ class OrderNetEnv(Env):
 
         self._num_resets = -1  # Becomes 0 after __init__ exits.
         self._num_steps = 0
-        self.reset()
+        self.done = False
+        # self.reset()
 
     def step(self, action) -> GymStepReturn:
+        if self.done:
+            print("TRYING TO STEP WHEN ALREADY DONE.")
+
         # The `step()` method must return four values: obs, reward, done, info
         self._num_steps += 1
         # First, write the net ordering to TritonRoute from the action
@@ -144,6 +148,11 @@ class OrderNetEnv(Env):
         return obs, reward, done, {}
 
     def reset(self) -> GymObs:
+        if (self.done):
+            # gets around the VecEnv resetting before 
+            # the end of a step
+            return np.random.rand(*self._obs_space_shape)
+        
         print("resetting")
         self._num_resets += 1
         self._net_numbering = {}
@@ -154,7 +163,7 @@ class OrderNetEnv(Env):
         # Start the router and get the information from the first run
         # which should generate the initial violations we look to fix
         self._router_process = subprocess.Popen(
-            [self._executable_path, self._script_path] #, stdout=subprocess.PIPE
+            [self._executable_path, "-exit", self._script_path] #, stdout=subprocess.PIPE
         )
 
         # get metrics about the workers in this design
@@ -180,7 +189,7 @@ class OrderNetEnv(Env):
         self._wirelength = wirelength
 
         # finally get an observation of optimization iteration #1
-        if self._num_resets > 0:
+        if self._num_resets == 0:
             message = self._socket.recv_json()
             observation = self._get_observation(message)
             message = self._socket.send_string("ack")
