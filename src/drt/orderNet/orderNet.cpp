@@ -1,9 +1,9 @@
 #include "orderNet.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
-#include <string>
 
 #include "dr/FlexDR.h"
 #include "dr/FlexMazeTypes.h"
@@ -12,6 +12,14 @@
 OrderNet::OrderNet() : context_(1), sender_(context_, zmq::socket_type::req)
 {
   std::cout << "Into OrderNet!" << std::endl;
+
+  if (const char* env_zmq_port = std::getenv("ZMQ_PORT")) {
+    std::string hostAddress("tcp://localhost:");
+    std::string port(env_zmq_port);
+    this->connectionString_ = hostAddress + port;
+  } else {
+    this->connectionString_ = "tcp://localhost:5555";
+  }
 }
 
 OrderNet::~OrderNet()
@@ -19,11 +27,11 @@ OrderNet::~OrderNet()
   std::cout << "Done" << std::endl;
 
   // Tell listeners we are done.
-  sender_.connect("tcp://localhost:5555");
+  sender_.connect(this->connectionString_);
   json jFinish;
   jFinish["type"] = "done";
   sendJson(jFinish);
-  sender_.disconnect("tcp://localhost:5555");
+  sender_.disconnect(this->connectionString_);
 }
 
 void OrderNet::Train(fr::FlexDRWorker* worker,
@@ -105,7 +113,7 @@ void OrderNet::Train(fr::FlexDRWorker* worker,
   auto numLayers = worker->getTech()->getLayers().size();
   jInferenceData["data"]["numLayers"] = numLayers;
 
-  sender_.connect("tcp://localhost:5555");
+  sender_.connect(this->connectionString_);
   zmq::message_t reply;
 
   sendJson(jInferenceData);
@@ -130,7 +138,7 @@ void OrderNet::Train(fr::FlexDRWorker* worker,
     sortFromResponse(ripupNets, reply);
   }
 
-  sender_.disconnect("tcp://localhost:5555");
+  sender_.disconnect(this->connectionString_);
 }
 
 void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets,
@@ -163,7 +171,7 @@ void OrderNet::SendReward(int drIter,
                           unsigned long long wireLength)
 {
   // std::cout << "Send Reward" << std::endl;
-  sender_.connect("tcp://localhost:5555");
+  sender_.connect(this->connectionString_);
 
   json jRewards;
   jRewards["type"] = "reward";
@@ -185,7 +193,7 @@ void OrderNet::SendReward(int drIter,
     std::cerr << "Failed to receive message." << std::endl;
   }
 
-  sender_.disconnect("tcp://localhost:5555");
+  sender_.disconnect(this->connectionString_);
 }
 
 void OrderNet::sendJson(json& j)

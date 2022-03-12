@@ -2,6 +2,7 @@
 #define __ORDERNET_H__
 
 #include <nlohmann/json.hpp>
+#include <string>
 #include <vector>
 #include <zmq.hpp>
 
@@ -37,6 +38,7 @@ class OrderNet
                         zmq::message_t& reply);
   void sendJson(json& j);
   void rectToJson(const Rect* rect, json j);
+  std::string connectionString_;
 };
 
 #endif

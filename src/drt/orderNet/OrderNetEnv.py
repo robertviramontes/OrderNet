@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from os import environ
 import subprocess
 from typing import Dict, List, Optional, Tuple
 from gym import Env, spaces
@@ -216,7 +217,8 @@ class OrderNetEnv(Env):
         """
         self._context = zmq.Context()
         self._socket = self._context.socket(zmq.REP)
-        self._socket.bind("tcp://*:5555")
+        port_num = "5555" if not ("ZMQ_PORT" in environ) else environ["ZMQ_PORT"]
+        self._socket.bind("tcp://*:" + port_num)
 
     def _receive_reward(self, message: Dict) -> Tuple[int, int]:
         """
