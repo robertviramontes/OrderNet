@@ -44,10 +44,11 @@ class OrderNetEnv(Env):
     Implements the custom OrderNet learning environment for OpenAI Gym.
     """
 
-    def __init__(self, executable_path: str, script_path: str):
+    def __init__(self, executable_path: str, script_path: str, zmq_port: str = "5555"):
         """
         Environment for OrderNet RL.
         """
+        self._zmq_port = zmq_port 
         self._init_zmq()
 
         self._executable_path = executable_path
@@ -168,8 +169,10 @@ class OrderNetEnv(Env):
 
         # Start the router and get the information from the first run
         # which should generate the initial violations we look to fix
+        router_env = environ.copy()
+        router_env["ZMQ_PORT"] = self._zmq_port
         self._router_process = subprocess.Popen(
-            [self._executable_path, "-exit", self._script_path] #, stdout=subprocess.PIPE
+            [self._executable_path, "-exit", self._script_path], env=router_env #, stdout=subprocess.PIPE
         )
         
         # get metrics about the workers in this design
@@ -217,8 +220,7 @@ class OrderNetEnv(Env):
         """
         self._context = zmq.Context()
         self._socket = self._context.socket(zmq.REP)
-        port_num = "5555" if not ("ZMQ_PORT" in environ) else environ["ZMQ_PORT"]
-        self._socket.bind("tcp://*:" + port_num)
+        self._socket.bind("tcp://*:" + self._zmq_port)
 
     def _receive_reward(self, message: Dict) -> Tuple[int, int]:
         """

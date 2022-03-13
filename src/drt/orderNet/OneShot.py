@@ -88,6 +88,7 @@ def one_shot(agent: A2C) -> A2C:
 parser = argparse.ArgumentParser(description='One-shot solution for DRT with an agent that learns as we go.')
 parser.add_argument("ispd_name", default="test1",
                     help="Name of the ispd benchmark (i.e. test1)")
+parser.add_argument("zmq_port", default="5555", help="Port number to connect ZMQ over.")
 
 args = parser.parse_args()
 
@@ -109,7 +110,7 @@ if "RESULT_DIR" not in os.environ:
     # often defined by an external script
     os.environ["RESULT_DIR"] = "results"
 
-env = OrderNetEnv(str(executable_name), script_path)
+env = OrderNetEnv(str(executable_name), script_path, args.zmq_port)
 # check_env(env)
 
 model = A2C("MlpPolicy", env)
