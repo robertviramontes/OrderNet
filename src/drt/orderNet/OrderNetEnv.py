@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
+from os import path
 from os import environ
 import subprocess
 from typing import Dict, List, Optional, Tuple
@@ -31,6 +31,7 @@ from stable_baselines3.common.type_aliases import GymObs, GymStepReturn
 import zmq
 import random
 import math
+import re
 
 
 class Point:
@@ -44,12 +45,20 @@ class OrderNetEnv(Env):
     Implements the custom OrderNet learning environment for OpenAI Gym.
     """
 
-    def __init__(self, executable_path: str, script_path: str, zmq_port: str = "5555"):
+    def __init__(
+        self,
+        executable_path: str,
+        script_path: str,
+        num_nets: int,
+        ispd_def_path: path,
+        zmq_port: str = "5555",
+    ):
         """
         Environment for OrderNet RL.
         """
-        self._zmq_port = zmq_port 
+        self._zmq_port = zmq_port
         self._init_zmq()
+        self._init_def_data(ispd_def_path)
 
         self._executable_path = executable_path
         self._script_path = script_path
@@ -60,7 +69,9 @@ class OrderNetEnv(Env):
         self._nets_to_order: List[str] = []
         self._net_numbering: Dict[int, str] = {}
 
-        self.action_space = spaces.Box(low=0, high=1, shape=(15,), dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=0, high=1, shape=(self._num_nets,), dtype=np.float32
+        )
         self.observation_space = spaces.Box(
             low=0, high=255, shape=self._obs_space_shape, dtype=np.uint8
         )
@@ -135,9 +146,8 @@ class OrderNetEnv(Env):
 
                 if message["type"] == "done":
                     done = True
-                    break; 
+                    break
 
-        
         if message["type"] == "inferenceData":
             obs = self._get_observation(message)
         elif not done:
@@ -155,11 +165,11 @@ class OrderNetEnv(Env):
         return obs, reward, done, {}
 
     def reset(self) -> GymObs:
-        if (self.done):
-            # gets around the VecEnv resetting before 
+        if self.done:
+            # gets around the VecEnv resetting before
             # the end of a step
             return np.random.rand(*self._obs_space_shape)
-        
+
         print("resetting")
         self._num_resets += 1
         self._net_numbering = {}
@@ -172,9 +182,10 @@ class OrderNetEnv(Env):
         router_env = environ.copy()
         router_env["ZMQ_PORT"] = self._zmq_port
         self._router_process = subprocess.Popen(
-            [self._executable_path, "-exit", self._script_path], env=router_env #, stdout=subprocess.PIPE
+            [self._executable_path, "-exit", self._script_path],
+            env=router_env,  # , stdout=subprocess.PIPE
         )
-        
+
         # get metrics about the workers in this design
         message = self._socket.recv_json()
         self._get_first_observation(message)
@@ -213,6 +224,31 @@ class OrderNetEnv(Env):
 
     def close(self):
         pass
+
+    def _init_def_data(self, ispd_def_path: path):
+        net_start_re = re.compile('NETS ([0-9]+) ;')
+        net_desc_re = re.compile('-\s(.*)\s')  # matches - net0000
+        in_net_section = False
+        net_id = 1
+        net_id_dict: Dict[str, int] = {}
+        with open(ispd_def_path, 'r') as f:
+            for line in f:
+                if not in_net_section:
+                    m = re.match(net_start_re, line)
+                    if m:
+                        self._num_nets = int(m.group(1))
+                        in_net_section = True
+                else:
+                    m = re.match(net_desc_re, line)
+                    if m:
+                        # push back the number of the net into a dictionary structure with integer ID
+                        net_id_dict[m.group(1)] = net_id
+                        net_id += 1
+                    elif "END NETS" in line:
+                        break
+        self._net_id_dict = net_id_dict
+
+
 
     def _init_zmq(self):
         """
@@ -317,7 +353,7 @@ def get_observation(
         raise TypeError("Expected inference data type message.")
 
     data = message["data"]
-    
+
     nets_to_order = data["nets"] if data["nets"] is not None else []
 
     if data["nets"] is None or data["routeBoxes"] is None:
@@ -337,9 +373,9 @@ def get_observation(
 
     # filter to only get pins in the range of our routebox!
     for i, net in enumerate(with_pins):
-        if i >= 15:
-            # can only order 15 nets
-            break
+        # if i >= 15:
+        #     # can only order 15 nets
+        #     break
         pins = []
         for pin in net["pins"]:
             if in_routebox(
@@ -421,7 +457,7 @@ def create_pin_maps(
         mode="constant",
         constant_values=[(0, 0), (0, 0), (0, 0)],
     )
-    
+
     return (pin_array_padded, net_numbering)
 
 

@@ -9,6 +9,24 @@ from stable_baselines3.common.callbacks import BaseCallback
 import argparse
 import numpy as np
 import time
+from typing import Dict
+
+num_nets: Dict[str, int] = {
+    "ispd18_sample": 11,
+    "ispd18_sample2": 16,
+    "ispd18_sample3": 7,
+    "ispd18_test1": 3153,
+    "ispd18_test2": 36834,
+    "ispd18_test3": 36700,
+    "ispd18_test4": 72401,
+    "ispd18_test5": 72394,
+    "ispd18_test6": 107701,
+    "ispd18_test7": 179863,
+    "ispd18_test8": 179863,
+    "ispd18_test9": 128857,
+    "ispd18_test10": 182000,
+}
+
 
 class OneShotCallback(BaseCallback):
     """
@@ -16,6 +34,7 @@ class OneShotCallback(BaseCallback):
 
     :param verbose: (int) Verbosity level 0: not output 1: info 2: debug
     """
+
     def __init__(self, verbose=0):
         super(OneShotCallback, self).__init__(verbose)
         # Those variables will be accessible in the callback
@@ -51,23 +70,19 @@ class OneShotCallback(BaseCallback):
                 return False
         return True
 
+
 def one_shot(agent: A2C) -> A2C:
     print("Starting one-shot routine!")
     reached_end_of_routing = False
 
     # incurs an environment reset
     total_timesteps, callback = agent._setup_learn(
-        total_timesteps=sys.maxsize,
-        eval_env=None,
-        callback=OneShotCallback()
+        total_timesteps=sys.maxsize, eval_env=None, callback=OneShotCallback()
     )
     while not reached_end_of_routing:
         # incurs resets
         continue_training = agent.collect_rollouts(
-            agent.env, 
-            callback,
-            agent.rollout_buffer,
-            n_rollout_steps=5
+            agent.env, callback, agent.rollout_buffer, n_rollout_steps=5
         )
 
         if not continue_training:
@@ -80,15 +95,21 @@ def one_shot(agent: A2C) -> A2C:
         # TEMP just test how this loop works
         # for s in agent._last_episode_starts:
         #     if s:
-        #         reached_end_of_routing = True            
-    
+        #         reached_end_of_routing = True
+
     print("End one-shot routine.")
     return agent
 
-parser = argparse.ArgumentParser(description='One-shot solution for DRT with an agent that learns as we go.')
-parser.add_argument("ispd_name", default="test1",
-                    help="Name of the ispd benchmark (i.e. test1)")
-parser.add_argument("zmq_port", default="5555", help="Port number to connect ZMQ over.")
+
+parser = argparse.ArgumentParser(
+    description="One-shot solution for DRT with an agent that learns as we go."
+)
+parser.add_argument(
+    "ispd_name", default="test1", help="Name of the ispd benchmark (i.e. test1)"
+)
+parser.add_argument(
+    "--port", dest="zmq_port", default="5555", help="Port number to connect ZMQ over."
+)
 
 args = parser.parse_args()
 
@@ -110,7 +131,14 @@ if "RESULT_DIR" not in os.environ:
     # often defined by an external script
     os.environ["RESULT_DIR"] = "results"
 
-env = OrderNetEnv(str(executable_name), script_path, args.zmq_port)
+ispd_def_path = os.path.join("/ispd18",("ispd18_" + args.ispd_name), ("ispd18_" + args.ispd_name + ".input.def"))
+env = OrderNetEnv(
+    str(executable_name),
+    script_path,
+    num_nets[("ispd18_" + args.ispd_name)],
+    ispd_def_path,
+    args.zmq_port,
+)
 # check_env(env)
 
 model = A2C("MlpPolicy", env)
@@ -125,13 +153,11 @@ save_pin_maps = False
 if save_pin_maps:
     pin_maps = env.collect_pin_maps
     for i, pin_map in enumerate(pin_maps):
-        if (i == 0):
+        if i == 0:
             collected_pin_maps = np.expand_dims(pin_map, axis=0)
         else:
             collected_pin_maps = np.append(
-                collected_pin_maps,
-                np.expand_dims(pin_map, axis=0),
-                axis=0
+                collected_pin_maps, np.expand_dims(pin_map, axis=0), axis=0
             )
 
     np.save("pin_maps", collected_pin_maps)
