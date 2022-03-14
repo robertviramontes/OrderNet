@@ -21,6 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
+from audioop import reverse
 from os import path
 from os import environ
 import subprocess
@@ -49,7 +50,6 @@ class OrderNetEnv(Env):
         self,
         executable_path: str,
         script_path: str,
-        num_nets: int,
         ispd_def_path: path,
         zmq_port: str = "5555",
     ):
@@ -67,7 +67,6 @@ class OrderNetEnv(Env):
         self._num_layers = 9
         self._obs_space_shape = (9, 250, 250)
         self._nets_to_order: List[str] = []
-        self._net_numbering: Dict[int, str] = {}
 
         self.action_space = spaces.Box(
             low=0, high=1, shape=(self._num_nets,), dtype=np.float32
@@ -172,7 +171,6 @@ class OrderNetEnv(Env):
 
         print("resetting")
         self._num_resets += 1
-        self._net_numbering = {}
         self._num_steps = 0
 
         self._cleanup_dangling_process()
@@ -226,12 +224,12 @@ class OrderNetEnv(Env):
         pass
 
     def _init_def_data(self, ispd_def_path: path):
-        net_start_re = re.compile('NETS ([0-9]+) ;')
-        net_desc_re = re.compile('-\s(.*)\s')  # matches - net0000
+        net_start_re = re.compile("NETS ([0-9]+) ;")
+        net_desc_re = re.compile("-\s(.*)\s")  # matches - net0000
         in_net_section = False
         net_id = 1
         net_id_dict: Dict[str, int] = {}
-        with open(ispd_def_path, 'r') as f:
+        with open(ispd_def_path, "r") as f:
             for line in f:
                 if not in_net_section:
                     m = re.match(net_start_re, line)
@@ -247,8 +245,6 @@ class OrderNetEnv(Env):
                     elif "END NETS" in line:
                         break
         self._net_id_dict = net_id_dict
-
-
 
     def _init_zmq(self):
         """
@@ -275,20 +271,19 @@ class OrderNetEnv(Env):
 
     def _get_observation(self, message: Dict) -> GymObs:
 
-        (pin_map, net_numbering, nets_to_order) = get_observation(
-            message, self._obs_space_shape, self._num_layers
+        (pin_map, nets_to_order) = get_observation(
+            message, self._obs_space_shape, self._num_layers, self._net_id_dict
         )
 
         self.collect_pin_maps.append(pin_map)
 
-        self._net_numbering = net_numbering
         self._nets_to_order = nets_to_order
         return pin_map
 
     def _send_ordering(self, action):
         """Sends the net ordering indicated in action to the router."""
 
-        order = parse_ordering(action, self._net_numbering, self._nets_to_order)
+        order = parse_ordering(action, self._net_id_dict, self._nets_to_order)
 
         # send the net ordering back to the responder
         self._socket.send_json(order)
@@ -345,8 +340,11 @@ def in_routebox(pin: Point, routeBoxMin: Point, routeBoxMax: Point) -> bool:
 
 
 def get_observation(
-    message: Dict, obs_space_shape: Tuple[int, int, int], num_layers: int
-) -> Tuple[GymObs, Dict, List]:
+    message: Dict,
+    obs_space_shape: Tuple[int, int, int],
+    num_layers: int,
+    net_id_dict: Dict[str, int],
+) -> Tuple[GymObs, List]:
     """Takes in the entire message, the observation space shape, the number of layers and returns the pin_map, nete_numbering, and nets_to_order."""
 
     if not "inferenceData" in message["type"]:
@@ -390,16 +388,17 @@ def get_observation(
             update_net["pins"] = pins
             with_pins_in_routebox.append(update_net)
 
-    (pin_map, net_numbering) = create_pin_maps(
+    pin_map = create_pin_maps(
         with_pins_in_routebox,
         routeBoxXRange,
         routeBoxYRange,
         routeBoxMin,
         obs_space_shape,
         num_layers,
+        net_id_dict,
     )
 
-    return (pin_map, net_numbering, nets_to_order)
+    return (pin_map, nets_to_order)
 
 
 def create_pin_maps(
@@ -409,14 +408,15 @@ def create_pin_maps(
     routeBoxMin: Point,
     obs_space_shape: Tuple[int, int, int],
     num_layers: int,
-) -> Tuple[np.array, Dict]:
+    net_id_dict: Dict[str, int],
+) -> np.array:
     pin_array = np.zeros(
         (num_layers, routeBoxYRange, routeBoxXRange),
         dtype=np.uint8,
     )
-    net_numbering = {}
-    for i, net in enumerate(nets):
-        net_numbering[i] = net["name"]
+
+    for net in nets:
+        net_id = net_id_dict[net["name"]]
         for pin in net["pins"]:
             z = pin["h"]["z"]
             low = Point(pin["l"]["x"] - routeBoxMin.x, pin["l"]["y"] - routeBoxMin.y)
@@ -428,7 +428,7 @@ def create_pin_maps(
             # fill the entire range of the pins access box
             for tx in range(abs(high.x - low.x) + 1):
                 for ty in range(abs(high.y - low.y) + 1):
-                    pin_array[z][minY + ty][minX + tx] = (i + 1) * 10
+                    pin_array[z][minY + ty][minX + tx] = (net_id) * 10
 
     # pad the pin array to the size of the observation
     x_padding_required = obs_space_shape[2] - routeBoxXRange
@@ -458,42 +458,27 @@ def create_pin_maps(
         constant_values=[(0, 0), (0, 0), (0, 0)],
     )
 
-    return (pin_array_padded, net_numbering)
+    return pin_array_padded
 
 
-def parse_ordering(action, net_numbering, nets_to_order) -> Dict:
+def parse_ordering(action, net_id_dict: Dict[str, int], nets_to_order) -> Dict:
     """Sends the net ordering indicated in action to the router."""
 
     action_copy = action
     np.ndarray.sort(action)
     action = np.flip(action)
 
-    # order the nets from the network feedback
-    nets_ordered = 0
-    order = {}
-    seen_sorted_vals = []
-    for sorted_val in action:
-        if sorted_val in seen_sorted_vals:
-            continue
-        else:
-            seen_sorted_vals.append(sorted_val)
-
-        match_indices = np.where(action_copy == sorted_val)
-        for i in match_indices[0]:
-            if i < len(net_numbering):
-                order[net_numbering[i]] = nets_ordered
-                nets_ordered += 1
-
-    net_not_yet_ordered = []
+    net_priorities: Dict[int, str] = {}
     for net in nets_to_order:
-        if net["name"] not in order:
-            net_not_yet_ordered.append(net["name"])
+        # net ids are 1-based, but the action space is 0-based
+        net_priorities[action[net_id_dict[net["name"]] - 1]] = net["name"]
 
-    random.shuffle(net_not_yet_ordered)
+    sorted_net_priorities = sorted(list(net_priorities.keys()), reverse=True)
 
-    for net in net_not_yet_ordered:
-        order[net] = nets_ordered
-        nets_ordered += 1
+    net_order = 0
+    order: Dict[str, int] = {}
+    for n in sorted_net_priorities:
+        order[net_priorities[n]] = net_order
+        net_order += 1
 
-    # send the net ordering back to the responder
     return order

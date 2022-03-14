@@ -11,23 +11,6 @@ import numpy as np
 import time
 from typing import Dict
 
-num_nets: Dict[str, int] = {
-    "ispd18_sample": 11,
-    "ispd18_sample2": 16,
-    "ispd18_sample3": 7,
-    "ispd18_test1": 3153,
-    "ispd18_test2": 36834,
-    "ispd18_test3": 36700,
-    "ispd18_test4": 72401,
-    "ispd18_test5": 72394,
-    "ispd18_test6": 107701,
-    "ispd18_test7": 179863,
-    "ispd18_test8": 179863,
-    "ispd18_test9": 128857,
-    "ispd18_test10": 182000,
-}
-
-
 class OneShotCallback(BaseCallback):
     """
     A custom callback that derives from ``BaseCallback``.
@@ -135,7 +118,6 @@ ispd_def_path = os.path.join("/ispd18",("ispd18_" + args.ispd_name), ("ispd18_" 
 env = OrderNetEnv(
     str(executable_name),
     script_path,
-    num_nets[("ispd18_" + args.ispd_name)],
     ispd_def_path,
     args.zmq_port,
 )
