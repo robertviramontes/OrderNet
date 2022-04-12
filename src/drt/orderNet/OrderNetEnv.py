@@ -72,7 +72,10 @@ class OrderNetEnv(Env):
             low=0, high=1, shape=(self._num_nets,), dtype=np.float32
         )
         self.observation_space = spaces.Box(
-            low=0, high=255, shape=self._obs_space_shape, dtype=np.uint8
+            low=0,
+            high=(self._num_nets + 1) * 10,
+            shape=self._obs_space_shape,
+            dtype=np.int32,
         )
 
         # reward metrics, will track improvement across steps
@@ -355,7 +358,7 @@ def get_observation(
     nets_to_order = data["nets"] if data["nets"] is not None else []
 
     if data["nets"] is None or data["routeBoxes"] is None:
-        return (np.zeros(obs_space_shape, dtype=np.uint8), {}, nets_to_order)
+        return (np.zeros(obs_space_shape, dtype=np.int32), nets_to_order)
 
     routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
     routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
@@ -412,7 +415,7 @@ def create_pin_maps(
 ) -> np.array:
     pin_array = np.zeros(
         (num_layers, routeBoxYRange, routeBoxXRange),
-        dtype=np.uint8,
+        dtype=np.int32,
     )
 
     for net in nets:
@@ -447,7 +450,7 @@ def create_pin_maps(
 
     if x_padding_required < 0 or y_padding_required < 0:
         print("WARNING: EXCEDED BOX SIZE")
-        return (np.zeros(obs_space_shape, dtype=np.uint8), {})
+        return np.zeros(obs_space_shape, dtype=np.int32)
 
     (x_pad_left, x_pad_right) = padding_helper(x_padding_required)
     (y_pad_top, y_pad_bottom) = padding_helper(y_padding_required)
@@ -464,14 +467,16 @@ def create_pin_maps(
 def parse_ordering(action, net_id_dict: Dict[str, int], nets_to_order) -> Dict:
     """Sends the net ordering indicated in action to the router."""
 
-    action_copy = action
-    np.ndarray.sort(action)
-    action = np.flip(action)
+    # action_copy = action
+    # np.ndarray.sort(action)
+    # action = np.flip(action)
 
     net_priorities: Dict[int, str] = {}
     for net in nets_to_order:
         # net ids are 1-based, but the action space is 0-based
-        net_priorities[action[net_id_dict[net["name"]] - 1]] = net["name"]
+        net_priorities[net["name"]] = 1.0 - action[net_id_dict[net["name"]] - 1]
+
+    return net_priorities
 
     sorted_net_priorities = sorted(list(net_priorities.keys()), reverse=True)
 
