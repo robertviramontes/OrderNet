@@ -60,10 +60,29 @@ void OrderNet::Train(fr::FlexDRWorker* worker,
     auto frNet = net->getFrNet();
     jNet["name"] = frNet->getName();
     json jPins;
+
     for (auto& pin : net->getPins()) {
+      // if (!(pin->getFrTerm())) {
+      //   continue;
+      // }
+
       fr::FlexMazeIdx l;
       fr::FlexMazeIdx h;
       pin->getAPBbox(l, h);
+
+      auto name = pin->getName();
+      // std::cout << pin->getName() <<
+      //   ": l->(" << l.x() << ", " << l.y() << ", " << l.z() << ")" <<
+      //   std::endl;
+      // if (pin->getFrTerm()) {
+      //   std::cout << "\t frTermType" << pin->getFrTerm()->typeId() <<
+      //   std::endl;
+      // }
+
+      // if (l.z() > 0) {
+      //   // std::cerr << frNet->getName() << std::endl;
+      //   continue;
+      // }
 
       json jPin;
       jPin["l"]["x"] = l.x();
@@ -149,10 +168,19 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets,
       std::string(static_cast<char*>(reply.data()), reply.size()));
 
   auto responseComp = [response](fr::drNet* const& a, fr::drNet* const& b) {
+    // Firt, sort based on the net priority, borrowing this from the
+    // if (a->getFrNet()->getAbsPriorityLvl() >
+    // b->getFrNet()->getAbsPriorityLvl())
+    //   return true;
+    // if (a->getFrNet()->getAbsPriorityLvl() <
+    // b->getFrNet()->getAbsPriorityLvl())
+    //   return false;
+
     // Sort based on the ordering in the response from the model
     // Return true if A is before B, hence list order should be ascending
     auto a_order = response[a->getFrNet()->getName()];
     auto b_order = response[b->getFrNet()->getName()];
+
     if (a_order != b_order) {
       return a_order < b_order;
     } else {
