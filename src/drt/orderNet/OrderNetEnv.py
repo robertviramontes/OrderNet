@@ -65,7 +65,7 @@ class OrderNetEnv(Env):
         self._router_process: Optional[subprocess.Popen] = None
 
         self._num_layers = 9
-        self._obs_space_shape = (9, 250, 250)
+        self._obs_space_shape = (self._num_layers, 250, 250)
         self._nets_to_order: List[str] = []
 
         self.action_space = spaces.Box(
