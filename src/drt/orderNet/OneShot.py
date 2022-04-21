@@ -11,6 +11,7 @@ import numpy as np
 import time
 from typing import Dict
 
+
 class OneShotCallback(BaseCallback):
     """
     A custom callback that derives from ``BaseCallback``.
@@ -62,6 +63,7 @@ def one_shot(agent: A2C) -> A2C:
     total_timesteps, callback = agent._setup_learn(
         total_timesteps=sys.maxsize, eval_env=None, callback=OneShotCallback()
     )
+
     while not reached_end_of_routing:
         # incurs resets
         continue_training = agent.collect_rollouts(
@@ -88,8 +90,10 @@ parser = argparse.ArgumentParser(
     description="One-shot solution for DRT with an agent that learns as we go."
 )
 parser.add_argument(
-    "ispd_name", default="test1", help="Name of the ispd benchmark (i.e. test1)"
+    "ispd_name", default="test1", help="Name of the ispd benchmark (i.e. ispd18_test1)"
 )
+parser.add_argument("ispd_dir", help="Directory that contains the ispdx_testx files. ")
+parser.add_argument("script_path", help="Path to TCL script that drives openroad")
 parser.add_argument(
     "--port", dest="zmq_port", default="5555", help="Port number to connect ZMQ over."
 )
@@ -103,18 +107,18 @@ build_dir = os.path.join("/OrderNet", "build")
 executable_name = str(os.path.join(build_dir, os.path.join("src", "openroad")))
 
 # TCL script that drives openroad
-script_path = os.path.join("/ispd18", "ispd18.tcl")
+script_path = args.script_path
 
 # TCL script requires knowing the ISPD source directory in env var ISPD_DIR
 # the name of the ISPD benchmark in env var ISPD_NAME (i.e. ispd18_test1)
 # and where to save the results in env var RESULT_DIR
-os.environ["ISPD_DIR"] = os.path.join("/ispd18/ispd18_" + args.ispd_name)
-os.environ["ISPD_NAME"] = "ispd18_" + args.ispd_name
+os.environ["ISPD_DIR"] = args.ispd_dir
+os.environ["ISPD_NAME"] = args.ispd_name
 if "RESULT_DIR" not in os.environ:
     # often defined by an external script
     os.environ["RESULT_DIR"] = "results"
 
-ispd_def_path = os.path.join("/ispd18",("ispd18_" + args.ispd_name), ("ispd18_" + args.ispd_name + ".input.def"))
+ispd_def_path = os.path.join(args.ispd_dir, (args.ispd_name + ".input.def"))
 env = OrderNetEnv(
     str(executable_name),
     script_path,
