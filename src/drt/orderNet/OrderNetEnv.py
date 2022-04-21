@@ -477,13 +477,3 @@ def parse_ordering(action, net_id_dict: Dict[str, int], nets_to_order) -> Dict:
         net_priorities[net["name"]] = 1.0 - action[net_id_dict[net["name"]] - 1]
 
     return net_priorities
-
-    sorted_net_priorities = sorted(list(net_priorities.keys()), reverse=True)
-
-    net_order = 0
-    order: Dict[str, int] = {}
-    for n in sorted_net_priorities:
-        order[net_priorities[n]] = net_order
-        net_order += 1
-
-    return order
