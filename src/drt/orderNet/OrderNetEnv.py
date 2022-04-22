@@ -78,13 +78,15 @@ class OrderNetEnv(Env):
         self.action_space = spaces.Box(
             low=0, high=1, shape=(self._num_nets,), dtype=np.float32
         )
-        self._observation_dtype = np.uint8 if (self._num_nets+1) * 10 < np.iinfo(np.uint8).max else np.int32
+        self._observation_dtype = (
+            np.uint8 if (self._num_nets + 1) * 10 < np.iinfo(np.uint8).max else np.int32
+        )
 
         self.observation_space = spaces.Box(
             low=0,
             high=(self._num_nets + 1) * 10,
             shape=self._obs_space_shape,
-            dtype= self._observation_dtype,
+            dtype=self._observation_dtype,
         )
 
         # reward metrics, will track improvement across steps
@@ -289,7 +291,7 @@ class OrderNetEnv(Env):
             self._num_layers,
             self._num_nets,
             self._net_id_dict if self._use_global_sorting else None,
-            self._observation_dtype
+            self._observation_dtype,
         )
 
         # self.collect_pin_maps.append(pin_map)
@@ -364,7 +366,7 @@ def get_observation(
     num_layers: int,
     num_nets: int,
     net_id_dict: Optional[Dict[str, int]],
-    obs_dtype
+    obs_dtype,
 ) -> Tuple[GymObs, List, Dict]:
     """Takes in the entire message, the observation space shape, the number of layers and returns the pin_map, nete_numbering, and nets_to_order."""
 
@@ -420,7 +422,7 @@ def get_observation(
         obs_space_shape,
         num_layers,
         used_nets_id_dict if net_id_dict is None else net_id_dict,
-        obs_dtype
+        obs_dtype,
     )
 
     return (pin_map, nets_to_order, used_nets_id_dict)
