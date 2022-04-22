@@ -52,13 +52,20 @@ class OrderNetEnv(Env):
         script_path: str,
         ispd_def_path: path,
         zmq_port: str = "5555",
+        num_nets_to_sort=None,
     ):
         """
         Environment for OrderNet RL.
         """
         self._zmq_port = zmq_port
         self._init_zmq()
-        self._init_def_data(ispd_def_path)
+        self._use_global_sorting = num_nets_to_sort is None
+        if num_nets_to_sort is None:
+            # load data from def if nothing else specified
+            self._init_def_data(ispd_def_path)
+        else:
+            self._num_nets = num_nets_to_sort
+            self._net_id_dict = {}
 
         self._executable_path = executable_path
         self._script_path = script_path
@@ -71,11 +78,13 @@ class OrderNetEnv(Env):
         self.action_space = spaces.Box(
             low=0, high=1, shape=(self._num_nets,), dtype=np.float32
         )
+        self._observation_dtype = np.uint8 if (self._num_nets+1) * 10 < np.iinfo(np.uint8).max else np.int32
+
         self.observation_space = spaces.Box(
             low=0,
             high=(self._num_nets + 1) * 10,
             shape=self._obs_space_shape,
-            dtype=np.int32,
+            dtype= self._observation_dtype,
         )
 
         # reward metrics, will track improvement across steps
@@ -274,11 +283,18 @@ class OrderNetEnv(Env):
 
     def _get_observation(self, message: Dict) -> GymObs:
 
-        (pin_map, nets_to_order) = get_observation(
-            message, self._obs_space_shape, self._num_layers, self._net_id_dict
+        (pin_map, nets_to_order, used_nets_id_dict) = get_observation(
+            message,
+            self._obs_space_shape,
+            self._num_layers,
+            self._num_nets,
+            self._net_id_dict if self._use_global_sorting else None,
+            self._observation_dtype
         )
 
-        self.collect_pin_maps.append(pin_map)
+        # self.collect_pin_maps.append(pin_map)
+        if self._use_global_sorting:
+            self._net_id_dict = used_nets_id_dict
 
         self._nets_to_order = nets_to_order
         return pin_map
@@ -346,8 +362,10 @@ def get_observation(
     message: Dict,
     obs_space_shape: Tuple[int, int, int],
     num_layers: int,
-    net_id_dict: Dict[str, int],
-) -> Tuple[GymObs, List]:
+    num_nets: int,
+    net_id_dict: Optional[Dict[str, int]],
+    obs_dtype
+) -> Tuple[GymObs, List, Dict]:
     """Takes in the entire message, the observation space shape, the number of layers and returns the pin_map, nete_numbering, and nets_to_order."""
 
     if not "inferenceData" in message["type"]:
@@ -355,10 +373,10 @@ def get_observation(
 
     data = message["data"]
 
-    nets_to_order = data["nets"] if data["nets"] is not None else []
-
     if data["nets"] is None or data["routeBoxes"] is None:
-        return (np.zeros(obs_space_shape, dtype=np.int32), nets_to_order)
+        return (np.zeros(obs_space_shape, dtype=obs_dtype), nets_to_order)
+
+    nets_to_order = data["nets"]
 
     routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
     routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
@@ -372,11 +390,13 @@ def get_observation(
     without_pins = list(filter(lambda net: "pins" not in net, data["nets"]))
     with_pins_in_routebox = []
 
+    used_nets_id_dict = {}
+
     # filter to only get pins in the range of our routebox!
     for i, net in enumerate(with_pins):
-        # if i >= 15:
-        #     # can only order 15 nets
-        #     break
+        if i >= num_nets:
+            # only order up to a certain amount of nets
+            break
         pins = []
         for pin in net["pins"]:
             if in_routebox(
@@ -390,6 +410,7 @@ def get_observation(
             update_net["name"] = net["name"]
             update_net["pins"] = pins
             with_pins_in_routebox.append(update_net)
+            used_nets_id_dict[net["name"]] = i
 
     pin_map = create_pin_maps(
         with_pins_in_routebox,
@@ -398,10 +419,11 @@ def get_observation(
         routeBoxMin,
         obs_space_shape,
         num_layers,
-        net_id_dict,
+        used_nets_id_dict if net_id_dict is None else net_id_dict,
+        obs_dtype
     )
 
-    return (pin_map, nets_to_order)
+    return (pin_map, nets_to_order, used_nets_id_dict)
 
 
 def create_pin_maps(
@@ -412,10 +434,11 @@ def create_pin_maps(
     obs_space_shape: Tuple[int, int, int],
     num_layers: int,
     net_id_dict: Dict[str, int],
+    obs_dtype,
 ) -> np.array:
     pin_array = np.zeros(
         (num_layers, routeBoxYRange, routeBoxXRange),
-        dtype=np.int32,
+        dtype=obs_dtype,
     )
 
     for net in nets:
@@ -450,7 +473,7 @@ def create_pin_maps(
 
     if x_padding_required < 0 or y_padding_required < 0:
         print("WARNING: EXCEDED BOX SIZE")
-        return np.zeros(obs_space_shape, dtype=np.int32)
+        return np.zeros(obs_space_shape, dtype=obs_dtype)
 
     (x_pad_left, x_pad_right) = padding_helper(x_padding_required)
     (y_pad_top, y_pad_bottom) = padding_helper(y_padding_required)
