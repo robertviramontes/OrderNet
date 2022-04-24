@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 from audioop import reverse
-from os import path
+from os import PathLike, path
 from os import environ
 import subprocess
 from typing import Dict, List, Optional, Tuple
@@ -50,7 +50,7 @@ class OrderNetEnv(Env):
         self,
         executable_path: str,
         script_path: str,
-        ispd_def_path: path,
+        ispd_def_path: PathLike,
         zmq_port: str = "5555",
         num_nets_to_sort=None,
     ):
@@ -65,7 +65,7 @@ class OrderNetEnv(Env):
             self._init_def_data(ispd_def_path)
         else:
             self._num_nets = num_nets_to_sort
-            self._net_id_dict = {}
+            self._net_id_dict: Dict[str, int] = {}
 
         self._executable_path = executable_path
         self._script_path = script_path
@@ -169,11 +169,12 @@ class OrderNetEnv(Env):
         if done:
             print("Done at step number: " + str(self._num_steps))
             self.done = done
-            try:
-                outs, errs = self._router_process.communicate(timeout=15)
-            except subprocess.TimeoutExpired:
-                self._router_process.kill()
-                outs, errs = self._router_process.communicate()
+            if self._router_process:
+                try:
+                    self._router_process.communicate(timeout=15)
+                except subprocess.TimeoutExpired:
+                    self._router_process.kill()
+                    self._router_process.communicate()
 
         return obs, reward, done, {}
 
@@ -237,7 +238,7 @@ class OrderNetEnv(Env):
     def close(self):
         pass
 
-    def _init_def_data(self, ispd_def_path: path):
+    def _init_def_data(self, ispd_def_path: PathLike):
         net_start_re = re.compile("NETS ([0-9]+) ;")
         net_desc_re = re.compile("-\s(.*)\s")  # matches - net0000
         in_net_section = False
@@ -295,7 +296,7 @@ class OrderNetEnv(Env):
         )
 
         # self.collect_pin_maps.append(pin_map)
-        if self._use_global_sorting:
+        if not self._use_global_sorting:
             self._net_id_dict = used_nets_id_dict
 
         self._nets_to_order = nets_to_order
@@ -376,7 +377,7 @@ def get_observation(
     data = message["data"]
 
     if data["nets"] is None or data["routeBoxes"] is None:
-        return (np.zeros(obs_space_shape, dtype=obs_dtype), nets_to_order)
+        return (np.zeros(obs_space_shape, dtype=obs_dtype), [], {})
 
     nets_to_order = data["nets"]
 
@@ -412,8 +413,8 @@ def get_observation(
             update_net["name"] = net["name"]
             update_net["pins"] = pins
             with_pins_in_routebox.append(update_net)
-            used_nets_id_dict[net["name"]] = i
-
+        used_nets_id_dict[net["name"]] = i
+    
     pin_map = create_pin_maps(
         with_pins_in_routebox,
         routeBoxXRange,
@@ -489,16 +490,27 @@ def create_pin_maps(
     return pin_array_padded
 
 
-def parse_ordering(action, net_id_dict: Dict[str, int], nets_to_order) -> Dict:
+def parse_ordering(action, net_id_dict: Dict[str, int], nets_to_order) -> Dict[str, float]:
     """Sends the net ordering indicated in action to the router."""
 
     # action_copy = action
     # np.ndarray.sort(action)
     # action = np.flip(action)
 
-    net_priorities: Dict[int, str] = {}
+    net_priorities: Dict[str, float] = {}
+    net_not_in_id_dict = []
     for net in nets_to_order:
-        # net ids are 1-based, but the action space is 0-based
-        net_priorities[net["name"]] = 1.0 - action[net_id_dict[net["name"]] - 1]
+        if net["name"] in net_id_dict.keys():
+            # net ids are 1-based, but the action space is 0-based, hance subtract 1 
+            # when accessing the action array
+            # use 1.0 - priority value, so the most urgent nets have the lowest ranking for sorting
+
+            net_priorities[net["name"]] = 1.0 - action[net_id_dict[net["name"]] - 1]
+        else:
+            net_not_in_id_dict.append(net)
+
+    random.shuffle(net_not_in_id_dict)
+    for i, net in enumerate(net_not_in_id_dict):
+        net_priorities[net["name"]] = 1.0 + (0.1 * i)
 
     return net_priorities
