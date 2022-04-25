@@ -306,7 +306,6 @@ class OrderNetEnv(Env):
         """Sends the net ordering indicated in action to the router."""
 
         order = parse_ordering(action, self._net_id_dict, self._nets_to_order)
-
         # send the net ordering back to the responder
         self._socket.send_json(order)
 
@@ -375,11 +374,11 @@ def get_observation(
         raise TypeError("Expected inference data type message.")
 
     data = message["data"]
+    nets_to_order = data["nets"] if data["nets"] is not None else []
 
-    if data["nets"] is None or data["routeBoxes"] is None:
-        return (np.zeros(obs_space_shape, dtype=obs_dtype), [], {})
+    if data["routeBoxes"] is None:
+        return (np.zeros(obs_space_shape, dtype=obs_dtype), nets_to_order, {})
 
-    nets_to_order = data["nets"]
 
     routeBoxMin = Point(data["routeBoxes"][0]["xlo"], data["routeBoxes"][0]["ylo"])
     routeBoxMax = Point(data["routeBoxes"][0]["xhi"], data["routeBoxes"][0]["yhi"])
