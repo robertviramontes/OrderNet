@@ -164,10 +164,11 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets,
                                 zmq::message_t& reply)
 {
   // Convert the response to json object
-  auto response = json::parse(
-      std::string(static_cast<char*>(reply.data()), reply.size()));
+  try {
+    auto response = json::parse(
+        std::string(static_cast<char*>(reply.data()), reply.size()));
 
-  auto responseComp = [response](fr::drNet* const& a, fr::drNet* const& b) {
+    auto responseComp = [response](fr::drNet* const& a, fr::drNet* const& b) {
     // Firt, sort based on the net priority, borrowing this from the
     // if (a->getFrNet()->getAbsPriorityLvl() >
     // b->getFrNet()->getAbsPriorityLvl())
@@ -178,8 +179,21 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets,
 
     // Sort based on the ordering in the response from the model
     // Return true if A is before B, hence list order should be ascending
-    auto a_order = response[a->getFrNet()->getName()];
-    auto b_order = response[b->getFrNet()->getName()];
+    auto a_order = 1.0;
+    auto b_order = a_order;
+    try {
+      a_order = response.at(a->getFrNet()->getName());
+    }
+    catch (...) {
+      std::cerr << "a: net " << a->getFrNet()->getName() << "not in response: " << std::endl;
+      std::cerr << response.dump(4) << std::endl;
+    }
+    try {
+      b_order = response.at(b->getFrNet()->getName());
+    } catch (...) {
+      std::cerr << "b: net " << b->getFrNet()->getName() << "not in response: " << std::endl;
+      std::cerr << response.dump(4) << std::endl;
+    }
 
     if (a_order != b_order) {
       return a_order < b_order;
@@ -191,6 +205,13 @@ void OrderNet::sortFromResponse(std::vector<fr::drNet*>& ripupNets,
 
   // Actually sort the nets
   sort(ripupNets.begin(), ripupNets.end(), responseComp);
+
+  } catch (json::parse_error& ex) {
+    std::cerr << "parse error at byte " << ex.byte << std::endl;
+    std::cerr << "on string: " << std::string(static_cast<char*>(reply.data()), reply.size()) << std::endl; 
+
+    return;
+  } 
 }
 
 void OrderNet::SendReward(int drIter,
